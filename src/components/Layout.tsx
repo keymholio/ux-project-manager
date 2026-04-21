@@ -25,7 +25,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <div className="text-sm font-semibold text-ink-900">
               Project Tracker
             </div>
-            <div className="text-xs text-ink-500">Design team</div>
+            <div className="text-xs text-ink-500">Northwell Design Team</div>
           </div>
         </div>
 
