@@ -51,15 +51,21 @@ export default function Layout({ children }: { children: ReactNode }) {
 
         <div className="border-t border-ink-200 p-3">
           <div className="flex items-center gap-2">
-            <Avatar profile={profile} size={32} />
-            <div className="flex-1 min-w-0">
-              <div className="truncate text-sm font-medium text-ink-900">
-                {profile?.full_name ?? "—"}
+            <NavLink
+              to="/settings"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-md p-1 hover:bg-ink-100"
+              title="Edit your profile"
+            >
+              <Avatar profile={profile} size={32} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-ink-900">
+                  {profile?.full_name ?? "—"}
+                </div>
+                <div className="text-xs text-ink-500">
+                  {isManager ? "Manager" : "Designer"}
+                </div>
               </div>
-              <div className="text-xs text-ink-500">
-                {isManager ? "Manager" : "Designer"}
-              </div>
-            </div>
+            </NavLink>
             <button
               onClick={signOut}
               className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-900"

@@ -6,6 +6,7 @@ import Login from "./pages/Login";
 import ProjectDetail from "./pages/ProjectDetail";
 import Projects from "./pages/Projects";
 import ResetPassword from "./pages/ResetPassword";
+import Settings from "./pages/Settings";
 import TaskBoard from "./pages/TaskBoard";
 import TaskDetail from "./pages/TaskDetail";
 
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/projects/:id" element={<ProjectDetail />} />
         <Route path="/tasks" element={<TaskBoard />} />
         <Route path="/tasks/:id" element={<TaskDetail />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

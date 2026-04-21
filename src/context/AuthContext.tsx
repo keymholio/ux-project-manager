@@ -22,6 +22,7 @@ interface AuthContextValue {
   ) => Promise<{ error: string | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
   clearRecovery: () => void;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -126,6 +127,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clearRecovery = () => setIsRecovering(false);
 
+  const refreshProfile = async () => {
+    if (!session?.user) return;
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", session.user.id)
+      .single();
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to refresh profile:", error.message);
+      return;
+    }
+    setProfile(data ?? null);
+  };
+
   const value: AuthContextValue = {
     session,
     profile,
@@ -137,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     requestPasswordReset,
     updatePassword,
     clearRecovery,
+    refreshProfile,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
