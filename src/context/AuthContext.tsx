@@ -14,8 +14,14 @@ interface AuthContextValue {
   profile: Profile | null;
   loading: boolean;
   isManager: boolean;
+  isRecovering: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  requestPasswordReset: (
+    email: string,
+  ) => Promise<{ error: string | null }>;
+  updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
+  clearRecovery: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -24,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isRecovering, setIsRecovering] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -34,8 +41,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!data.session) setLoading(false);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, newSession) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((evt, newSession) => {
       setSession(newSession);
+      // When the user clicks a password-reset link from email, Supabase fires
+      // PASSWORD_RECOVERY with a short-lived session. We stash a flag so the
+      // app shows the "set new password" screen instead of the normal UI.
+      if (evt === "PASSWORD_RECOVERY") {
+        setIsRecovering(true);
+      }
       if (!newSession) {
         setProfile(null);
         setLoading(false);
@@ -85,15 +98,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    setIsRecovering(false);
   };
+
+  const requestPasswordReset: AuthContextValue["requestPasswordReset"] = async (
+    email,
+  ) => {
+    // After the user clicks the email link, Supabase will redirect back here,
+    // detect the recovery token in the URL, and fire PASSWORD_RECOVERY.
+    // HashRouter-friendly: land on the app root so the client picks up the
+    // hash fragment.
+    const redirectTo =
+      window.location.origin + window.location.pathname + "#/";
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+    return { error: error?.message ?? null };
+  };
+
+  const updatePassword: AuthContextValue["updatePassword"] = async (
+    newPassword,
+  ) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (!error) setIsRecovering(false);
+    return { error: error?.message ?? null };
+  };
+
+  const clearRecovery = () => setIsRecovering(false);
 
   const value: AuthContextValue = {
     session,
     profile,
     loading,
     isManager: profile?.role === "manager",
+    isRecovering,
     signIn,
     signOut,
+    requestPasswordReset,
+    updatePassword,
+    clearRecovery,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

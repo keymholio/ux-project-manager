@@ -5,11 +5,12 @@ import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import ProjectDetail from "./pages/ProjectDetail";
 import Projects from "./pages/Projects";
+import ResetPassword from "./pages/ResetPassword";
 import TaskBoard from "./pages/TaskBoard";
 import TaskDetail from "./pages/TaskDetail";
 
 export default function App() {
-  const { session, loading } = useAuth();
+  const { session, loading, isRecovering } = useAuth();
 
   if (loading) {
     return (
@@ -17,6 +18,13 @@ export default function App() {
         Loading…
       </div>
     );
+  }
+
+  // Password recovery takes priority over everything — the user arrived here
+  // from an email link and has a short-lived session for the sole purpose of
+  // choosing a new password.
+  if (isRecovering) {
+    return <ResetPassword />;
   }
 
   if (!session) {
