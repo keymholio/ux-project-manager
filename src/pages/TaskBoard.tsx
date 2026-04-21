@@ -1,6 +1,6 @@
 import { Plus, Search } from "lucide-react";
-import { type DragEvent, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Avatar,
   Button,
@@ -98,7 +98,28 @@ export default function TaskBoard() {
   }, [tasks, assigneeFilter, projectFilter, query, profile?.id]);
 
   const onDrop = async (taskId: string, status: TaskStatus) => {
-    await supabase.from("tasks").update({ status }).eq("id", taskId);
+    // Optimistically move the card so the UI feels responsive — the realtime
+    // subscription will confirm (or correct) shortly.
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, status } : t)),
+    );
+    const { error, data } = await supabase
+      .from("tasks")
+      .update({ status })
+      .eq("id", taskId)
+      .select();
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to move task:", error.message);
+      refresh();
+      return;
+    }
+    // If RLS silently blocked the update (designer dragging someone else's
+    // task), the response will be an empty array — roll back the optimistic
+    // change.
+    if (!data || data.length === 0) {
+      refresh();
+    }
   };
 
   if (loading)
@@ -279,6 +300,11 @@ function TaskCard({
   profiles: Profile[];
   projects: Project[];
 }) {
+  const navigate = useNavigate();
+  // We track whether a drag just occurred so the mouseup-triggered click
+  // doesn't accidentally navigate to the task detail page after a drop.
+  const draggingRef = useRef(false);
+
   const assignee = profiles.find((p) => p.id === task.assignee_id) ?? null;
   const project = projects.find((p) => p.id === task.project_id) ?? null;
   const overdue =
@@ -287,11 +313,32 @@ function TaskCard({
     new Date(task.due_date) < new Date();
 
   return (
-    <Link
-      to={`/tasks/${task.id}`}
+    <div
+      role="button"
+      tabIndex={0}
       draggable
-      onDragStart={(e) => e.dataTransfer.setData("text/taskId", task.id)}
-      className="card p-3 hover:border-brand-500 cursor-grab active:cursor-grabbing block"
+      onDragStart={(e) => {
+        draggingRef.current = true;
+        e.dataTransfer.setData("text/taskId", task.id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      onDragEnd={() => {
+        // Defer so the trailing click fires *after* we read this flag.
+        setTimeout(() => {
+          draggingRef.current = false;
+        }, 0);
+      }}
+      onClick={() => {
+        if (draggingRef.current) return;
+        navigate(`/tasks/${task.id}`);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          navigate(`/tasks/${task.id}`);
+        }
+      }}
+      className="card p-3 hover:border-brand-500 cursor-grab active:cursor-grabbing block select-none"
     >
       <div className="flex items-start justify-between gap-2">
         <TaskTypeBadge type={task.task_type} />
@@ -321,7 +368,7 @@ function TaskCard({
           {formatDate(task.due_date)}
         </div>
       </div>
-    </Link>
+    </div>
   );
 }
 
