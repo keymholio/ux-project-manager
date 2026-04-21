@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { Button, Spinner } from "../components/ui";
 
 export default function Login() {
-  const { signIn, signInWithGoogle } = useAuth();
+  const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -72,24 +72,6 @@ export default function Login() {
             className="w-full justify-center"
           >
             {busy ? <Spinner /> : "Sign in"}
-          </Button>
-
-          <div className="relative my-2 flex items-center">
-            <div className="flex-1 border-t border-ink-200" />
-            <span className="px-2 text-xs text-ink-400">or</span>
-            <div className="flex-1 border-t border-ink-200" />
-          </div>
-
-          <Button
-            type="button"
-            onClick={async () => {
-              setError(null);
-              const { error } = await signInWithGoogle();
-              if (error) setError(error);
-            }}
-            className="w-full justify-center"
-          >
-            Continue with Google
           </Button>
         </form>
 

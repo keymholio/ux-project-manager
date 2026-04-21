@@ -15,7 +15,6 @@ interface AuthContextValue {
   loading: boolean;
   isManager: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -84,14 +83,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null };
   };
 
-  const signInWithGoogle: AuthContextValue["signInWithGoogle"] = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin + window.location.pathname },
-    });
-    return { error: error?.message ?? null };
-  };
-
   const signOut = async () => {
     await supabase.auth.signOut();
   };
@@ -102,7 +93,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     isManager: profile?.role === "manager",
     signIn,
-    signInWithGoogle,
     signOut,
   };
 

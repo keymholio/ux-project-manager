@@ -85,13 +85,6 @@ Open http://localhost:5173 and sign in with one of the users you created.
 4. Push to `main`. The workflow in `.github/workflows/deploy.yml` builds and publishes automatically.
 5. Your app will live at `https://<you>.github.io/<repo-name>/`.
 
-### 6. (Optional) Enable Google sign-in
-
-1. In Supabase → **Authentication → Providers → Google** → enable.
-2. Follow the Google OAuth setup prompts in the dashboard.
-3. Add your GitHub Pages URL (and `http://localhost:5173`) as allowed redirect URLs.
-4. Your team can now sign in with their Google account — make sure the Google emails match the profile rows you inserted in step 3.
-
 ## Security notes
 
 - Anyone authenticated can **read** all data (small, trusted team — change this if that's not true).
