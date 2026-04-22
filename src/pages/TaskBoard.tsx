@@ -166,11 +166,11 @@ export default function TaskBoard() {
           <option value="mine">Assigned to me</option>
           <option value="unassigned">Unassigned</option>
           {[...profiles]
+            .filter((p) => p.id !== profile?.id)
             .sort((a, b) => a.full_name.localeCompare(b.full_name))
             .map((p) => (
               <option key={p.id} value={p.id}>
                 {p.full_name}
-                {p.role === "manager" ? " (manager)" : ""}
               </option>
             ))}
         </select>
