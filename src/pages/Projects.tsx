@@ -227,9 +227,11 @@ export default function Projects() {
                     jira={p.jira_url}
                     figjam={p.figjam_url}
                   />
-                  <div className="text-xs text-ink-500">
-                    Due {formatDate(p.due_date)}
-                  </div>
+                  {p.due_date && (
+                    <div className="text-xs text-ink-500">
+                      Due {formatDate(p.due_date)}
+                    </div>
+                  )}
                 </div>
               </Link>
             );

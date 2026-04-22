@@ -134,13 +134,14 @@ export function CategoryBadge({ category }: { category: ProjectCategory }) {
 }
 
 export function PriorityBadge({ priority }: { priority: Priority }) {
-  const color =
-    priority === "high"
-      ? "bg-rose-100 text-rose-800"
-      : priority === "medium"
-        ? "bg-amber-100 text-amber-800"
-        : "bg-ink-100 text-ink-600";
-  return <span className={`chip ${color}`}>{PRIORITY_LABEL[priority]}</span>;
+  // Priority is only noteworthy when it's high. Medium and low are the
+  // default state of most work and don't need a visual chip.
+  if (priority !== "high") return null;
+  return (
+    <span className="chip bg-rose-100 text-rose-800">
+      {PRIORITY_LABEL[priority]}
+    </span>
+  );
 }
 
 export function TaskTypeBadge({ type }: { type: TaskType }) {
