@@ -162,7 +162,7 @@ export default function TaskBoard() {
           value={assigneeFilter}
           onChange={(e) => setAssigneeFilter(e.target.value)}
         >
-          <option value="all">All team</option>
+          <option value="all">All designers</option>
           <option value="mine">Assigned to me</option>
           <option value="unassigned">Unassigned</option>
           {[...profiles]

@@ -89,7 +89,7 @@ export default function Settings() {
         <h1 className="text-2xl font-semibold text-ink-900">Your profile</h1>
         <p className="mt-1 text-sm text-ink-500">
           Update your display name and avatar color. Changes are visible to the
-          rest of the team.
+          rest of the designers.
         </p>
       </div>
 

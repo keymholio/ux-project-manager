@@ -418,7 +418,7 @@ export default function ProjectDetail() {
 
       {/* Assignees */}
       <section className="card p-4">
-        <h2 className="mb-2 text-sm font-semibold text-ink-900">Team</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-900">Designers</h2>
         <div className="flex flex-wrap gap-2">
           {team.map((d) => {
             const on = draftAssigneeIds.includes(d.id);

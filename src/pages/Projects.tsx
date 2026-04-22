@@ -208,8 +208,8 @@ export default function Projects() {
           <h1 className="text-xl font-semibold text-ink-900">Projects</h1>
           <p className="text-sm text-ink-500">
             {isManager
-              ? "Create, assign, and track projects across your team."
-              : "Projects assigned to or tracked by the team."}
+              ? "Create, assign, and track projects across your designers."
+              : "Projects assigned to or tracked by the designers."}
           </p>
         </div>
         {isManager && (
@@ -570,7 +570,7 @@ function NewProjectModal({
             />
           </Field>
         </div>
-        <Field label="Assign team">
+        <Field label="Assign designers">
           <div className="flex flex-wrap gap-1">
             {team.map((d) => {
               const selected = selectedAssignees.includes(d.id);
