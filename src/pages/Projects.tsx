@@ -28,13 +28,19 @@ import {
   type Priority,
 } from "../lib/types";
 
-// Set of all valid project statuses, used to validate URL params.
-const VALID_STATUS = new Set<string>(PROJECT_STATUS_ORDER);
+// Set of all valid project statuses, used to validate URL params. Includes
+// "active" (a synthetic value meaning "everything except Backlog and Done")
+// and "all" alongside the real status keys.
+const VALID_STATUS = new Set<string>([...PROJECT_STATUS_ORDER, "active", "all"]);
 const VALID_CATEGORY = new Set<string>(Object.keys(CATEGORY_LABEL));
 
-// Sort config. Team/Tools are intentionally not sortable — an avatar stack
-// or a set of tool chips has no natural ordering users would expect.
-type SortColumn = "name" | "priority" | "status" | "due_date";
+// Status filter has two synthetic options on top of the real statuses.
+type StatusFilter = ProjectStatus | "active" | "all";
+
+// Sort config. Assigned-to and Tools are intentionally not sortable — an
+// avatar stack or a set of tool chips has no natural ordering users would
+// expect.
+type SortColumn = "name" | "category" | "priority" | "status" | "due_date";
 type SortDir = "asc" | "desc";
 const PRIORITY_RANK: Record<Priority, number> = { low: 1, medium: 2, high: 3 };
 const STATUS_RANK: Record<ProjectStatus, number> = PROJECT_STATUS_ORDER.reduce(
@@ -54,9 +60,10 @@ export default function Projects() {
   // Filters are initialized from URL params so deep-links like
   // /projects?status=backlog from the dashboard funnel work out of the box.
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">(() => {
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
     const s = params.get("status");
-    return s && VALID_STATUS.has(s) ? (s as ProjectStatus) : "all";
+    // Default to "active" (Backlog and Done hidden) when no param is set.
+    return s && VALID_STATUS.has(s) ? (s as StatusFilter) : "active";
   });
   const [categoryFilter, setCategoryFilter] = useState<ProjectCategory | "all">(
     () => {
@@ -81,9 +88,11 @@ export default function Projects() {
   };
 
   // Keep the URL in sync when the user changes filters from the page itself.
+  // "active" is the default so we omit it from the URL — /projects stays
+  // clean. Explicit choices (all statuses, a specific status) get persisted.
   useEffect(() => {
     const next = new URLSearchParams(params);
-    statusFilter === "all"
+    statusFilter === "active"
       ? next.delete("status")
       : next.set("status", statusFilter);
     categoryFilter === "all"
@@ -97,7 +106,9 @@ export default function Projects() {
   // re-read the URL into state so the dropdowns reflect reality.
   useEffect(() => {
     const s = params.get("status");
-    setStatusFilter(s && VALID_STATUS.has(s) ? (s as ProjectStatus) : "all");
+    setStatusFilter(
+      s && VALID_STATUS.has(s) ? (s as StatusFilter) : "active",
+    );
     const c = params.get("category");
     setCategoryFilter(
       c && VALID_CATEGORY.has(c) ? (c as ProjectCategory) : "all",
@@ -133,7 +144,13 @@ export default function Projects() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return projects.filter((p) => {
-      if (statusFilter !== "all" && p.status !== statusFilter) return false;
+      if (statusFilter === "active") {
+        // "Active" is the default view: everything except the parked ends
+        // of the funnel. Backlog is still being scoped, Done is shipped.
+        if (p.status === "backlog" || p.status === "done") return false;
+      } else if (statusFilter !== "all" && p.status !== statusFilter) {
+        return false;
+      }
       if (categoryFilter !== "all" && p.category !== categoryFilter) return false;
       if (q && !p.name.toLowerCase().includes(q)) return false;
       return true;
@@ -150,6 +167,11 @@ export default function Projects() {
       switch (sort.col) {
         case "name":
           return a.name.localeCompare(b.name) * mul;
+        case "category":
+          return (
+            CATEGORY_LABEL[a.category].localeCompare(CATEGORY_LABEL[b.category]) *
+            mul
+          );
         case "priority":
           return (PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]) * mul;
         case "status":
@@ -217,8 +239,9 @@ export default function Projects() {
         <select
           className="input w-auto"
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as ProjectStatus | "all")}
+          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
         >
+          <option value="active">Active projects</option>
           <option value="all">All statuses</option>
           {PROJECT_STATUS_ORDER.map((s) => (
             <option key={s} value={s}>
@@ -257,10 +280,9 @@ export default function Projects() {
       ) : (
         <div className="card overflow-hidden">
           {/* Header row. Widths here must match the data rows below so the
-              columns line up. The leading 2.5-wide span stands in for the
-              category dot column. */}
+              columns line up. Order: Project → Category → Status → Assigned
+              to → Tools → Due → Priority (rightmost). */}
           <div className="flex items-center gap-3 border-b border-ink-200 bg-ink-50/60 px-4 py-2 text-xs font-medium uppercase tracking-wide text-ink-500">
-            <span className="h-2.5 w-2.5 flex-shrink-0" />
             <div className="min-w-0 flex-1">
               <SortableHeader
                 label="Project"
@@ -270,10 +292,10 @@ export default function Projects() {
               />
             </div>
             <div className="flex flex-shrink-0 items-center gap-3">
-              <div className="w-14">
+              <div className="w-32">
                 <SortableHeader
-                  label="Priority"
-                  col="priority"
+                  label="Category"
+                  col="category"
                   sort={sort}
                   onToggle={toggleSort}
                 />
@@ -286,12 +308,21 @@ export default function Projects() {
                   onToggle={toggleSort}
                 />
               </div>
-              <div className="w-24">Team</div>
+              <div className="w-40">Assigned to</div>
               <div className="w-40">Tools</div>
               <div className="w-20 text-right">
                 <SortableHeader
                   label="Due"
                   col="due_date"
+                  sort={sort}
+                  onToggle={toggleSort}
+                  align="right"
+                />
+              </div>
+              <div className="w-16 text-right">
+                <SortableHeader
+                  label="Priority"
+                  col="priority"
                   sort={sort}
                   onToggle={toggleSort}
                   align="right"
@@ -311,14 +342,6 @@ export default function Projects() {
                   to={`/projects/${p.id}`}
                   className="flex items-center gap-3 px-4 py-3 hover:bg-ink-50 transition"
                 >
-                  {/* Category indicator — tiny colored dot instead of a full
-                      chip to save horizontal space. Hover for the name. */}
-                  <span
-                    className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                    style={{ background: CATEGORY_COLOR[p.category] }}
-                    title={CATEGORY_LABEL[p.category]}
-                    aria-label={CATEGORY_LABEL[p.category]}
-                  />
                   {/* Name + description — takes whatever space is left. */}
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-ink-900">
@@ -331,14 +354,43 @@ export default function Projects() {
                     )}
                   </div>
                   <div className="flex flex-shrink-0 items-center gap-3">
-                    <div className="w-14">
-                      <PriorityBadge priority={p.priority} />
+                    {/* Category — colored dot preserves the visual cue from
+                        the old design; the label makes it scannable without
+                        a hover. */}
+                    <div className="flex w-32 items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                        style={{ background: CATEGORY_COLOR[p.category] }}
+                      />
+                      <span className="truncate text-xs text-ink-700">
+                        {CATEGORY_LABEL[p.category]}
+                      </span>
                     </div>
                     <div className="w-32">
                       <ProjectStatusBadge status={p.status} />
                     </div>
-                    <div className="w-24">
-                      <AvatarStack profiles={team} size={22} />
+                    {/* Assigned-to column. One person: avatar + full name.
+                        Multiple: stack + first name + "+N" so the row stays
+                        within its fixed width. Zero: a dash. */}
+                    <div className="flex w-40 min-w-0 items-center gap-2">
+                      {team.length === 0 ? (
+                        <span className="text-sm text-ink-500">—</span>
+                      ) : team.length === 1 ? (
+                        <>
+                          <Avatar profile={team[0]} size={22} />
+                          <span className="truncate text-sm text-ink-900">
+                            {team[0].full_name}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <AvatarStack profiles={team} size={22} />
+                          <span className="truncate text-sm text-ink-900">
+                            {team[0].full_name.split(" ")[0]} +
+                            {team.length - 1}
+                          </span>
+                        </>
+                      )}
                     </div>
                     <div className="w-40">
                       <ToolLinks
@@ -352,6 +404,9 @@ export default function Projects() {
                         across rows, even when some projects have no due date. */}
                     <div className="w-20 text-right text-xs tabular-nums text-ink-500">
                       {p.due_date ? formatDate(p.due_date) : ""}
+                    </div>
+                    <div className="flex w-16 justify-end">
+                      <PriorityBadge priority={p.priority} />
                     </div>
                   </div>
                 </Link>
