@@ -115,7 +115,11 @@ export default function ProjectDetail() {
   if (err) return <div className="p-6 text-rose-700">Error: {err}</div>;
   if (!project) return <div className="p-6">Project not found.</div>;
 
-  const designers = profiles.filter((p) => p.role === "designer");
+  // Team section covers everyone (managers included) — a manager can put
+  // themselves on a project they're actively contributing to.
+  const team = [...profiles].sort((a, b) =>
+    a.full_name.localeCompare(b.full_name),
+  );
 
   return (
     <div className="p-6 max-w-5xl space-y-5">
@@ -291,7 +295,7 @@ export default function ProjectDetail() {
       <section className="card p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-900">Team</h2>
         <div className="flex flex-wrap gap-2">
-          {designers.map((d) => {
+          {team.map((d) => {
             const on = assignees.some((a) => a.id === d.id);
             if (!isManager) {
               return on ? (
@@ -318,7 +322,7 @@ export default function ProjectDetail() {
             );
           })}
           {!isManager && assignees.length === 0 && (
-            <p className="text-sm text-ink-500">No designers assigned yet.</p>
+            <p className="text-sm text-ink-500">No one assigned yet.</p>
           )}
         </div>
       </section>

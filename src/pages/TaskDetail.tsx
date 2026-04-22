@@ -95,7 +95,10 @@ export default function TaskDetail() {
   if (!task) return <div className="p-6">Task not found.</div>;
 
   const assignee = profiles.find((p) => p.id === task.assignee_id) ?? null;
-  const designers = profiles.filter((p) => p.role === "designer");
+  // Managers can also own tasks, so the assignee picker includes everyone.
+  const team = [...profiles].sort((a, b) =>
+    a.full_name.localeCompare(b.full_name),
+  );
 
   return (
     <div className="p-6 max-w-4xl space-y-5">
@@ -165,9 +168,10 @@ export default function TaskDetail() {
               onChange={(e) => updateField("assignee_id", e.target.value || null)}
             >
               <option value="">— Unassigned —</option>
-              {designers.map((d) => (
+              {team.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.full_name}
+                  {d.role === "manager" ? " (manager)" : ""}
                 </option>
               ))}
             </select>

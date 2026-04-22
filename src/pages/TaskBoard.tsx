@@ -162,14 +162,15 @@ export default function TaskBoard() {
           value={assigneeFilter}
           onChange={(e) => setAssigneeFilter(e.target.value)}
         >
-          <option value="all">All designers</option>
+          <option value="all">All team</option>
           <option value="mine">Assigned to me</option>
           <option value="unassigned">Unassigned</option>
-          {profiles
-            .filter((p) => p.role === "designer")
+          {[...profiles]
+            .sort((a, b) => a.full_name.localeCompare(b.full_name))
             .map((p) => (
               <option key={p.id} value={p.id}>
                 {p.full_name}
+                {p.role === "manager" ? " (manager)" : ""}
               </option>
             ))}
         </select>
@@ -428,7 +429,10 @@ function NewTaskModal({
     onCreated();
   };
 
-  const designers = profiles.filter((p) => p.role === "designer");
+  // Anyone on the team can be assigned — managers often self-assign work too.
+  const team = [...profiles].sort((a, b) =>
+    a.full_name.localeCompare(b.full_name),
+  );
 
   return (
     <Modal open title="New task" onClose={onClose} wide>
@@ -519,9 +523,10 @@ function NewTaskModal({
                 onChange={(e) => setAssigneeId(e.target.value)}
               >
                 <option value="">— Unassigned —</option>
-                {designers.map((d) => (
+                {team.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.full_name}
+                    {d.role === "manager" ? " (manager)" : ""}
                   </option>
                 ))}
               </select>

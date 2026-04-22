@@ -104,7 +104,11 @@ export default function Dashboard() {
 // Manager view — team workload + deadlines + funnel
 // =============================================================================
 function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
-  const designers = profiles.filter((p) => p.role === "designer");
+  // Everyone (managers included) can own tasks & projects, so the workload
+  // chart covers the whole team — sorted alphabetically for consistency.
+  const team = [...profiles].sort((a, b) =>
+    a.full_name.localeCompare(b.full_name),
+  );
 
   const tasksByAssignee = useMemo(() => {
     const m = new Map<string, Task[]>();
@@ -141,8 +145,8 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
           icon={<Users size={18} />}
-          label="Active designers"
-          value={designers.length}
+          label="Team members"
+          value={team.length}
         />
         <Stat
           icon={<Clock size={18} />}
@@ -174,13 +178,13 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
         />
       </div>
 
-      {/* Workload by designer */}
+      {/* Workload by team member */}
       <section className="card p-5">
         <h2 className="mb-3 text-sm font-semibold text-ink-900">
-          Workload by designer
+          Workload by team
         </h2>
         <div className="space-y-3">
-          {designers.map((d) => {
+          {team.map((d) => {
             const mine = tasksByAssignee.get(d.id) ?? [];
             const byStatus: Record<string, number> = {};
             for (const t of mine) byStatus[t.status] = (byStatus[t.status] ?? 0) + 1;
@@ -242,10 +246,11 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
               </div>
             );
           })}
-          {designers.length === 0 && (
+          {team.length === 0 && (
             <p className="text-sm text-ink-500">
-              No designers yet. Add designers in Supabase Auth and set their
-              role to <code>designer</code> in the profiles table.
+              No team members yet. Add people in Supabase Auth, then set their
+              role (<code>manager</code> or <code>designer</code>) in the
+              profiles table.
             </p>
           )}
         </div>

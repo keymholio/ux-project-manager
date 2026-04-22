@@ -240,7 +240,10 @@ function NewProjectModal({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const designers = profiles.filter((p) => p.role === "designer");
+  // Include managers — they may contribute to the project themselves.
+  const team = [...profiles].sort((a, b) =>
+    a.full_name.localeCompare(b.full_name),
+  );
 
   const submit = async () => {
     if (!name.trim() || !profile) return;
@@ -351,9 +354,9 @@ function NewProjectModal({
             />
           </Field>
         </div>
-        <Field label="Assign designers">
+        <Field label="Assign team">
           <div className="flex flex-wrap gap-1">
-            {designers.map((d) => {
+            {team.map((d) => {
               const selected = selectedAssignees.includes(d.id);
               return (
                 <button
