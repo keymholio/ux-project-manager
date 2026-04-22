@@ -1,5 +1,5 @@
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowLeft, Check, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
 import {
@@ -27,16 +27,47 @@ import {
   type Task,
 } from "../lib/types";
 
+// Fields the user can edit. Used both for diffing draft ↔ server and for
+// building the UPDATE payload when saving. Everything else (id, owner_id,
+// created_at, updated_at) is server-managed and should never be sent back.
+const EDITABLE_FIELDS = [
+  "name",
+  "description",
+  "status",
+  "category",
+  "priority",
+  "due_date",
+  "figma_url",
+  "workfront_url",
+  "jira_url",
+  "figjam_url",
+] as const;
+type EditableField = (typeof EDITABLE_FIELDS)[number];
+
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
   const { isManager } = useAuth();
 
+  // Server snapshots — what the DB last told us.
   const [project, setProject] = useState<Project | null>(null);
-  const [assignees, setAssignees] = useState<Profile[]>([]);
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [err, setErr] = useState<string | null>(null);
+
+  // Working copy — what the UI is editing. Diverges from the server
+  // snapshot as the user makes changes, then snaps back on save or discard.
+  const [draft, setDraft] = useState<Project | null>(null);
+  const [draftAssigneeIds, setDraftAssigneeIds] = useState<string[]>([]);
+
+  // Save state for the sticky bar at the bottom of the page.
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // Remembers which project id we've already seeded the draft from, so
+  // realtime updates don't clobber in-progress edits by resetting the draft.
+  const initedForIdRef = useRef<string | null>(null);
 
   const load = async () => {
     if (!id) return;
@@ -48,11 +79,8 @@ export default function ProjectDetail() {
     ]);
     if (pRes.error) setErr(pRes.error.message);
     setProject(pRes.data ?? null);
-    const assigneeIds = (aRes.data ?? []).map((r) => r.user_id);
+    setAssigneeIds((aRes.data ?? []).map((r) => r.user_id));
     setProfiles(profRes.data ?? []);
-    setAssignees(
-      (profRes.data ?? []).filter((p) => assigneeIds.includes(p.id)),
-    );
     setTasks(tRes.data ?? []);
   };
 
@@ -71,28 +99,133 @@ export default function ProjectDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const updateField = async <K extends keyof Project>(field: K, value: Project[K]) => {
+  // Seed the draft once per project id. Project + assigneeIds are set in
+  // the same `load()` call, so by the time `project` is non-null the
+  // assignee IDs are ready too.
+  useEffect(() => {
     if (!project) return;
-    const { error } = await supabase
-      .from("projects")
-      .update({ [field]: value })
-      .eq("id", project.id);
-    if (error) setErr(error.message);
+    if (initedForIdRef.current === project.id) return;
+    initedForIdRef.current = project.id;
+    setDraft(project);
+    setDraftAssigneeIds(assigneeIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project]);
+
+  const isDirty = useMemo(() => {
+    if (!draft || !project) return false;
+    for (const key of EDITABLE_FIELDS) {
+      if (draft[key] !== project[key]) return true;
+    }
+    // Order-independent assignee comparison.
+    if (draftAssigneeIds.length !== assigneeIds.length) return true;
+    const a = [...draftAssigneeIds].sort();
+    const b = [...assigneeIds].sort();
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return true;
+    }
+    return false;
+  }, [draft, project, draftAssigneeIds, assigneeIds]);
+
+  // Warn on tab close / reload if there are unsaved edits. Doesn't catch
+  // in-app navigation — that's a bigger lift (react-router v6 useBlocker).
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
+  // Auto-hide the "Saved" confirmation after a short beat.
+  useEffect(() => {
+    if (savedAt === null) return;
+    const t = setTimeout(() => setSavedAt(null), 2500);
+    return () => clearTimeout(t);
+  }, [savedAt]);
+
+  const setField = <K extends EditableField>(field: K, value: Project[K]) => {
+    if (!draft) return;
+    setDraft({ ...draft, [field]: value });
+    // Any new edit should clear the saved indicator.
+    setSavedAt(null);
   };
 
-  const toggleAssignee = async (userId: string, on: boolean) => {
-    if (!project) return;
-    if (on) {
-      await supabase
+  const toggleAssignee = (userId: string) => {
+    setDraftAssigneeIds((prev) =>
+      prev.includes(userId) ? prev.filter((x) => x !== userId) : [...prev, userId],
+    );
+    setSavedAt(null);
+  };
+
+  const save = async () => {
+    if (!draft || !project || !isDirty) return;
+    setSaving(true);
+    setErr(null);
+
+    // Build an UPDATE payload of only the fields that actually changed.
+    const fieldDiff: Partial<Project> = {};
+    for (const key of EDITABLE_FIELDS) {
+      if (draft[key] !== project[key]) {
+        (fieldDiff as Record<string, unknown>)[key] = draft[key];
+      }
+    }
+    if (Object.keys(fieldDiff).length > 0) {
+      const { error } = await supabase
+        .from("projects")
+        .update(fieldDiff)
+        .eq("id", project.id);
+      if (error) {
+        setErr(error.message);
+        setSaving(false);
+        return;
+      }
+    }
+
+    // Assignee set diff — inserts for anyone newly added, deletes for
+    // anyone removed. Bail out on the first error so partial saves don't
+    // leave the UI reporting success.
+    const toAdd = draftAssigneeIds.filter((x) => !assigneeIds.includes(x));
+    if (toAdd.length > 0) {
+      const { error } = await supabase
         .from("project_assignees")
-        .insert({ project_id: project.id, user_id: userId });
-    } else {
-      await supabase
+        .insert(toAdd.map((uid) => ({ project_id: project.id, user_id: uid })));
+      if (error) {
+        setErr(error.message);
+        setSaving(false);
+        return;
+      }
+    }
+    const toRemove = assigneeIds.filter((x) => !draftAssigneeIds.includes(x));
+    for (const uid of toRemove) {
+      const { error } = await supabase
         .from("project_assignees")
         .delete()
         .eq("project_id", project.id)
-        .eq("user_id", userId);
+        .eq("user_id", uid);
+      if (error) {
+        setErr(error.message);
+        setSaving(false);
+        return;
+      }
     }
+
+    // Adopt the draft into the server snapshot immediately so isDirty
+    // flips to false without waiting for the realtime echo to come back.
+    setProject({ ...project, ...fieldDiff } as Project);
+    setAssigneeIds(draftAssigneeIds);
+    setSaving(false);
+    setSavedAt(Date.now());
+  };
+
+  const discard = () => {
+    if (!project || !isDirty) return;
+    if (!confirm("Discard unsaved changes?")) return;
+    setDraft(project);
+    setDraftAssigneeIds(assigneeIds);
+    setErr(null);
+    setSavedAt(null);
   };
 
   const deleteProject = async () => {
@@ -112,8 +245,8 @@ export default function ProjectDetail() {
         <Spinner />
       </div>
     );
-  if (err) return <div className="p-6 text-rose-700">Error: {err}</div>;
-  if (!project) return <div className="p-6">Project not found.</div>;
+  if (err && !project) return <div className="p-6 text-rose-700">Error: {err}</div>;
+  if (!project || !draft) return <div className="p-6">Project not found.</div>;
 
   // Team section covers everyone (managers included) — a manager can put
   // themselves on a project they're actively contributing to.
@@ -122,7 +255,8 @@ export default function ProjectDetail() {
   );
 
   return (
-    <div className="p-6 max-w-5xl space-y-5">
+    // Extra bottom padding so the sticky save bar never covers content.
+    <div className="p-6 max-w-5xl space-y-5 pb-24">
       <div>
         <Link
           to="/projects"
@@ -136,21 +270,18 @@ export default function ProjectDetail() {
       <header className="flex items-start justify-between gap-4">
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <CategoryBadge category={project.category} />
-            <PriorityBadge priority={project.priority} />
+            <CategoryBadge category={draft.category} />
+            <PriorityBadge priority={draft.priority} />
           </div>
           {isManager ? (
             <input
               className="mt-2 w-full bg-transparent text-2xl font-semibold text-ink-900 focus:outline-none focus:bg-white rounded px-1 -mx-1"
-              value={project.name}
-              onChange={(e) =>
-                setProject({ ...project, name: e.target.value })
-              }
-              onBlur={(e) => updateField("name", e.target.value)}
+              value={draft.name}
+              onChange={(e) => setField("name", e.target.value)}
             />
           ) : (
             <h1 className="mt-2 text-2xl font-semibold text-ink-900">
-              {project.name}
+              {draft.name}
             </h1>
           )}
         </div>
@@ -171,8 +302,8 @@ export default function ProjectDetail() {
           {isManager ? (
             <select
               className="input"
-              value={project.status}
-              onChange={(e) => updateField("status", e.target.value as ProjectStatus)}
+              value={draft.status}
+              onChange={(e) => setField("status", e.target.value as ProjectStatus)}
             >
               {PROJECT_STATUS_ORDER.map((s) => (
                 <option key={s} value={s}>
@@ -181,16 +312,16 @@ export default function ProjectDetail() {
               ))}
             </select>
           ) : (
-            <ProjectStatusBadge status={project.status} />
+            <ProjectStatusBadge status={draft.status} />
           )}
         </Meta>
         <Meta label="Category">
           {isManager ? (
             <select
               className="input"
-              value={project.category}
+              value={draft.category}
               onChange={(e) =>
-                updateField("category", e.target.value as ProjectCategory)
+                setField("category", e.target.value as ProjectCategory)
               }
             >
               {(Object.keys(CATEGORY_LABEL) as ProjectCategory[]).map((c) => (
@@ -200,22 +331,22 @@ export default function ProjectDetail() {
               ))}
             </select>
           ) : (
-            <CategoryBadge category={project.category} />
+            <CategoryBadge category={draft.category} />
           )}
         </Meta>
         <Meta label="Priority">
           {isManager ? (
             <select
               className="input"
-              value={project.priority}
-              onChange={(e) => updateField("priority", e.target.value as Priority)}
+              value={draft.priority}
+              onChange={(e) => setField("priority", e.target.value as Priority)}
             >
               <option value="low">Low</option>
               <option value="medium">Medium</option>
               <option value="high">High</option>
             </select>
           ) : (
-            <PriorityBadge priority={project.priority} />
+            <PriorityBadge priority={draft.priority} />
           )}
         </Meta>
         <Meta label="Due date">
@@ -223,12 +354,12 @@ export default function ProjectDetail() {
             <input
               className="input"
               type="date"
-              value={project.due_date ?? ""}
-              onChange={(e) => updateField("due_date", e.target.value || null)}
+              value={draft.due_date ?? ""}
+              onChange={(e) => setField("due_date", e.target.value || null)}
             />
           ) : (
             <span className="text-sm text-ink-900">
-              {formatDate(project.due_date)}
+              {formatDate(draft.due_date)}
             </span>
           )}
         </Meta>
@@ -241,16 +372,13 @@ export default function ProjectDetail() {
           <textarea
             className="input"
             rows={3}
-            value={project.description ?? ""}
-            onChange={(e) =>
-              setProject({ ...project, description: e.target.value })
-            }
-            onBlur={(e) => updateField("description", e.target.value || null)}
+            value={draft.description ?? ""}
+            onChange={(e) => setField("description", e.target.value || null)}
             placeholder="Add a brief description or notes."
           />
         ) : (
           <p className="whitespace-pre-wrap text-sm text-ink-700">
-            {project.description ?? "—"}
+            {draft.description ?? "—"}
           </p>
         )}
       </section>
@@ -270,11 +398,8 @@ export default function ProjectDetail() {
                   </span>
                   <input
                     className="input"
-                    value={project[f] ?? ""}
-                    onChange={(e) =>
-                      setProject({ ...project, [f]: e.target.value })
-                    }
-                    onBlur={(e) => updateField(f, e.target.value || null)}
+                    value={draft[f] ?? ""}
+                    onChange={(e) => setField(f, e.target.value || null)}
                     placeholder="https://…"
                   />
                 </label>
@@ -283,10 +408,10 @@ export default function ProjectDetail() {
           </div>
         ) : (
           <ToolLinks
-            figma={project.figma_url}
-            workfront={project.workfront_url}
-            jira={project.jira_url}
-            figjam={project.figjam_url}
+            figma={draft.figma_url}
+            workfront={draft.workfront_url}
+            jira={draft.jira_url}
+            figjam={draft.figjam_url}
           />
         )}
       </section>
@@ -296,7 +421,7 @@ export default function ProjectDetail() {
         <h2 className="mb-2 text-sm font-semibold text-ink-900">Team</h2>
         <div className="flex flex-wrap gap-2">
           {team.map((d) => {
-            const on = assignees.some((a) => a.id === d.id);
+            const on = draftAssigneeIds.includes(d.id);
             if (!isManager) {
               return on ? (
                 <span
@@ -311,7 +436,7 @@ export default function ProjectDetail() {
             return (
               <button
                 key={d.id}
-                onClick={() => toggleAssignee(d.id, !on)}
+                onClick={() => toggleAssignee(d.id)}
                 className={`chip flex items-center gap-1 ${
                   on ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-700"
                 }`}
@@ -321,7 +446,7 @@ export default function ProjectDetail() {
               </button>
             );
           })}
-          {!isManager && assignees.length === 0 && (
+          {!isManager && draftAssigneeIds.length === 0 && (
             <p className="text-sm text-ink-500">No one assigned yet.</p>
           )}
         </div>
@@ -375,6 +500,15 @@ export default function ProjectDetail() {
 
       {/* Comments */}
       <CommentThread projectId={project.id} />
+
+      <SaveBar
+        isDirty={isDirty}
+        saving={saving}
+        savedAt={savedAt}
+        error={err}
+        onSave={save}
+        onDiscard={discard}
+      />
     </div>
   );
 }
@@ -384,6 +518,53 @@ function Meta({ label, children }: { label: string; children: React.ReactNode })
     <div>
       <div className="mb-1 text-xs font-medium text-ink-500">{label}</div>
       {children}
+    </div>
+  );
+}
+
+// Sticky save bar — appears at the bottom of the scroll container when
+// there are unsaved changes, flashes a confirmation after a successful
+// save, and surfaces server errors inline so the user doesn't have to
+// hunt for them. Shared between ProjectDetail and TaskDetail conceptually;
+// kept inline for now because it's small and the two pages diverge a bit.
+function SaveBar({
+  isDirty,
+  saving,
+  savedAt,
+  error,
+  onSave,
+  onDiscard,
+}: {
+  isDirty: boolean;
+  saving: boolean;
+  savedAt: number | null;
+  error: string | null;
+  onSave: () => void;
+  onDiscard: () => void;
+}) {
+  const visible = isDirty || !!savedAt || !!error;
+  if (!visible) return null;
+  return (
+    <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-end gap-3 rounded-lg border border-ink-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
+      {error && (
+        <span className="mr-auto text-sm text-rose-700">{error}</span>
+      )}
+      {isDirty ? (
+        <>
+          <span className="text-sm text-ink-500">Unsaved changes</span>
+          <Button onClick={onDiscard} disabled={saving}>
+            Discard
+          </Button>
+          <Button variant="primary" onClick={onSave} disabled={saving}>
+            {saving ? <Spinner /> : "Save changes"}
+          </Button>
+        </>
+      ) : savedAt ? (
+        <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700">
+          <Check size={14} />
+          Saved
+        </span>
+      ) : null}
     </div>
   );
 }

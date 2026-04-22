@@ -1,5 +1,5 @@
-import { ArrowLeft, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowLeft, Check, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
 import {
@@ -27,15 +27,47 @@ import {
   type TaskType,
 } from "../lib/types";
 
+// Fields the user can edit on a task. Used for draft ↔ server diffing and
+// for building the UPDATE payload on save. Server-managed fields (id,
+// created_at, updated_at, created_by) are intentionally excluded.
+const EDITABLE_FIELDS = [
+  "title",
+  "description",
+  "status",
+  "assignee_id",
+  "due_date",
+  "priority",
+  "task_type",
+  "project_id",
+  "figma_url",
+  "workfront_url",
+  "jira_url",
+  "figjam_url",
+] as const;
+type EditableField = (typeof EDITABLE_FIELDS)[number];
+
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
   const { profile, isManager } = useAuth();
 
+  // Server snapshot — what the DB last told us.
   const [task, setTask] = useState<Task | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [err, setErr] = useState<string | null>(null);
+
+  // Working copy for the user's edits. Bound to every editable input so
+  // controlled selects stay on the value the user just picked, instead of
+  // snapping back to the server state on re-render.
+  const [draft, setDraft] = useState<Task | null>(null);
+
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // Tracks which task id the draft was seeded from so realtime updates
+  // don't overwrite in-progress edits on their way in.
+  const initedForIdRef = useRef<string | null>(null);
 
   const load = async () => {
     if (!id) return;
@@ -63,26 +95,79 @@ export default function TaskDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Seed the draft once per task id.
+  useEffect(() => {
+    if (!task) return;
+    if (initedForIdRef.current === task.id) return;
+    initedForIdRef.current = task.id;
+    setDraft(task);
+  }, [task]);
+
   const canEdit = isManager || task?.assignee_id === profile?.id;
 
-  const updateField = async <K extends keyof Task>(field: K, value: Task[K]) => {
-    if (!task || !canEdit) return;
-    // Apply the change locally right away so controlled inputs stay in sync
-    // with the user's choice. Without this, React re-renders the <select>
-    // with the old state value and it appears to snap back — the realtime
-    // subscription would eventually correct it, but only if realtime is on
-    // for the tasks table and only after a round-trip.
-    const prev = task;
-    setTask({ ...task, [field]: value });
+  const isDirty = useMemo(() => {
+    if (!draft || !task) return false;
+    for (const key of EDITABLE_FIELDS) {
+      if (draft[key] !== task[key]) return true;
+    }
+    return false;
+  }, [draft, task]);
+
+  // Warn on tab close / reload if there are unsaved edits.
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
+  useEffect(() => {
+    if (savedAt === null) return;
+    const t = setTimeout(() => setSavedAt(null), 2500);
+    return () => clearTimeout(t);
+  }, [savedAt]);
+
+  const setField = <K extends EditableField>(field: K, value: Task[K]) => {
+    if (!draft || !canEdit) return;
+    setDraft({ ...draft, [field]: value });
+    setSavedAt(null);
+  };
+
+  const save = async () => {
+    if (!draft || !task || !isDirty) return;
+    setSaving(true);
+    setErr(null);
+    const diff: Partial<Task> = {};
+    for (const key of EDITABLE_FIELDS) {
+      if (draft[key] !== task[key]) {
+        (diff as Record<string, unknown>)[key] = draft[key];
+      }
+    }
     const { error } = await supabase
       .from("tasks")
-      .update({ [field]: value })
+      .update(diff)
       .eq("id", task.id);
     if (error) {
-      // Roll back the optimistic change and show the error.
-      setTask(prev);
       setErr(error.message);
+      setSaving(false);
+      return;
     }
+    // Adopt the draft as the new server snapshot so isDirty flips off
+    // without waiting for the realtime echo.
+    setTask({ ...task, ...diff } as Task);
+    setSaving(false);
+    setSavedAt(Date.now());
+  };
+
+  const discard = () => {
+    if (!task || !isDirty) return;
+    if (!confirm("Discard unsaved changes?")) return;
+    setDraft(task);
+    setErr(null);
+    setSavedAt(null);
   };
 
   const deleteTask = async () => {
@@ -102,17 +187,17 @@ export default function TaskDetail() {
         <Spinner />
       </div>
     );
-  if (err) return <div className="p-6 text-rose-700">Error: {err}</div>;
-  if (!task) return <div className="p-6">Task not found.</div>;
+  if (err && !task) return <div className="p-6 text-rose-700">Error: {err}</div>;
+  if (!task || !draft) return <div className="p-6">Task not found.</div>;
 
-  const assignee = profiles.find((p) => p.id === task.assignee_id) ?? null;
+  const assignee = profiles.find((p) => p.id === draft.assignee_id) ?? null;
   // Managers can also own tasks, so the assignee picker includes everyone.
   const team = [...profiles].sort((a, b) =>
     a.full_name.localeCompare(b.full_name),
   );
 
   return (
-    <div className="p-6 max-w-4xl space-y-5">
+    <div className="p-6 max-w-4xl space-y-5 pb-24">
       <div>
         <Link
           to="/tasks"
@@ -126,19 +211,18 @@ export default function TaskDetail() {
       <header className="flex items-start justify-between gap-4">
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <TaskTypeBadge type={task.task_type} />
-            <PriorityBadge priority={task.priority} />
-            <TaskStatusBadge status={task.status} />
+            <TaskTypeBadge type={draft.task_type} />
+            <PriorityBadge priority={draft.priority} />
+            <TaskStatusBadge status={draft.status} />
           </div>
           {canEdit ? (
             <input
               className="mt-2 w-full bg-transparent text-2xl font-semibold text-ink-900 focus:outline-none focus:bg-white rounded px-1 -mx-1"
-              value={task.title}
-              onChange={(e) => setTask({ ...task, title: e.target.value })}
-              onBlur={(e) => updateField("title", e.target.value)}
+              value={draft.title}
+              onChange={(e) => setField("title", e.target.value)}
             />
           ) : (
-            <h1 className="mt-2 text-2xl font-semibold text-ink-900">{task.title}</h1>
+            <h1 className="mt-2 text-2xl font-semibold text-ink-900">{draft.title}</h1>
           )}
         </div>
         {isManager && (
@@ -158,8 +242,8 @@ export default function TaskDetail() {
           {canEdit ? (
             <select
               className="input"
-              value={task.status}
-              onChange={(e) => updateField("status", e.target.value as TaskStatus)}
+              value={draft.status}
+              onChange={(e) => setField("status", e.target.value as TaskStatus)}
             >
               {TASK_STATUS_ORDER.map((s) => (
                 <option key={s} value={s}>
@@ -168,15 +252,15 @@ export default function TaskDetail() {
               ))}
             </select>
           ) : (
-            <TaskStatusBadge status={task.status} />
+            <TaskStatusBadge status={draft.status} />
           )}
         </Meta>
         <Meta label="Assignee">
           {isManager ? (
             <select
               className="input"
-              value={task.assignee_id ?? ""}
-              onChange={(e) => updateField("assignee_id", e.target.value || null)}
+              value={draft.assignee_id ?? ""}
+              onChange={(e) => setField("assignee_id", e.target.value || null)}
             >
               <option value="">— Unassigned —</option>
               {team.map((d) => (
@@ -200,19 +284,19 @@ export default function TaskDetail() {
             <input
               className="input"
               type="date"
-              value={task.due_date ?? ""}
-              onChange={(e) => updateField("due_date", e.target.value || null)}
+              value={draft.due_date ?? ""}
+              onChange={(e) => setField("due_date", e.target.value || null)}
             />
           ) : (
-            <span className="text-sm text-ink-900">{formatDate(task.due_date)}</span>
+            <span className="text-sm text-ink-900">{formatDate(draft.due_date)}</span>
           )}
         </Meta>
         <Meta label="Priority">
           {canEdit ? (
             <select
               className="input"
-              value={task.priority}
-              onChange={(e) => updateField("priority", e.target.value as Priority)}
+              value={draft.priority}
+              onChange={(e) => setField("priority", e.target.value as Priority)}
             >
               {(Object.keys(PRIORITY_LABEL) as Priority[]).map((p) => (
                 <option key={p} value={p}>
@@ -221,15 +305,15 @@ export default function TaskDetail() {
               ))}
             </select>
           ) : (
-            <PriorityBadge priority={task.priority} />
+            <PriorityBadge priority={draft.priority} />
           )}
         </Meta>
         <Meta label="Type">
           {canEdit ? (
             <select
               className="input"
-              value={task.task_type}
-              onChange={(e) => updateField("task_type", e.target.value as TaskType)}
+              value={draft.task_type}
+              onChange={(e) => setField("task_type", e.target.value as TaskType)}
             >
               {(Object.keys(TASK_TYPE_LABEL) as TaskType[]).map((t) => (
                 <option key={t} value={t}>
@@ -238,15 +322,15 @@ export default function TaskDetail() {
               ))}
             </select>
           ) : (
-            <TaskTypeBadge type={task.task_type} />
+            <TaskTypeBadge type={draft.task_type} />
           )}
         </Meta>
         <Meta label="Project">
           {isManager ? (
             <select
               className="input"
-              value={task.project_id ?? ""}
-              onChange={(e) => updateField("project_id", e.target.value || null)}
+              value={draft.project_id ?? ""}
+              onChange={(e) => setField("project_id", e.target.value || null)}
             >
               <option value="">— No project —</option>
               {projects.map((p) => (
@@ -255,12 +339,12 @@ export default function TaskDetail() {
                 </option>
               ))}
             </select>
-          ) : task.project_id ? (
+          ) : draft.project_id ? (
             <Link
-              to={`/projects/${task.project_id}`}
+              to={`/projects/${draft.project_id}`}
               className="text-sm text-brand-700 hover:underline"
             >
-              {projects.find((p) => p.id === task.project_id)?.name ?? "—"}
+              {projects.find((p) => p.id === draft.project_id)?.name ?? "—"}
             </Link>
           ) : (
             <span className="text-sm text-ink-500">—</span>
@@ -275,14 +359,13 @@ export default function TaskDetail() {
           <textarea
             className="input"
             rows={4}
-            value={task.description ?? ""}
-            onChange={(e) => setTask({ ...task, description: e.target.value })}
-            onBlur={(e) => updateField("description", e.target.value || null)}
+            value={draft.description ?? ""}
+            onChange={(e) => setField("description", e.target.value || null)}
             placeholder="Context, acceptance criteria, links"
           />
         ) : (
           <p className="whitespace-pre-wrap text-sm text-ink-700">
-            {task.description ?? "—"}
+            {draft.description ?? "—"}
           </p>
         )}
       </section>
@@ -302,11 +385,8 @@ export default function TaskDetail() {
                   </span>
                   <input
                     className="input"
-                    value={task[f] ?? ""}
-                    onChange={(e) =>
-                      setTask({ ...task, [f]: e.target.value })
-                    }
-                    onBlur={(e) => updateField(f, e.target.value || null)}
+                    value={draft[f] ?? ""}
+                    onChange={(e) => setField(f, e.target.value || null)}
                     placeholder="https://…"
                   />
                 </label>
@@ -315,15 +395,24 @@ export default function TaskDetail() {
           </div>
         ) : (
           <ToolLinks
-            figma={task.figma_url}
-            workfront={task.workfront_url}
-            jira={task.jira_url}
-            figjam={task.figjam_url}
+            figma={draft.figma_url}
+            workfront={draft.workfront_url}
+            jira={draft.jira_url}
+            figjam={draft.figjam_url}
           />
         )}
       </section>
 
       <CommentThread taskId={task.id} />
+
+      <SaveBar
+        isDirty={isDirty}
+        saving={saving}
+        savedAt={savedAt}
+        error={err}
+        onSave={save}
+        onDiscard={discard}
+      />
     </div>
   );
 }
@@ -333,6 +422,51 @@ function Meta({ label, children }: { label: string; children: React.ReactNode })
     <div>
       <div className="mb-1 text-xs font-medium text-ink-500">{label}</div>
       {children}
+    </div>
+  );
+}
+
+// Sticky save bar. Duplicated in ProjectDetail for now — the two pages
+// share the save-draft pattern but not much else, and abstracting this
+// out before we have a third caller would be premature.
+function SaveBar({
+  isDirty,
+  saving,
+  savedAt,
+  error,
+  onSave,
+  onDiscard,
+}: {
+  isDirty: boolean;
+  saving: boolean;
+  savedAt: number | null;
+  error: string | null;
+  onSave: () => void;
+  onDiscard: () => void;
+}) {
+  const visible = isDirty || !!savedAt || !!error;
+  if (!visible) return null;
+  return (
+    <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-end gap-3 rounded-lg border border-ink-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
+      {error && (
+        <span className="mr-auto text-sm text-rose-700">{error}</span>
+      )}
+      {isDirty ? (
+        <>
+          <span className="text-sm text-ink-500">Unsaved changes</span>
+          <Button onClick={onDiscard} disabled={saving}>
+            Discard
+          </Button>
+          <Button variant="primary" onClick={onSave} disabled={saving}>
+            {saving ? <Spinner /> : "Save changes"}
+          </Button>
+        </>
+      ) : savedAt ? (
+        <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700">
+          <Check size={14} />
+          Saved
+        </span>
+      ) : null}
     </div>
   );
 }

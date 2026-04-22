@@ -22,7 +22,7 @@ Built to replace tracking projects and tasks in Figma. Stages, categories, and t
 - Project stages: Backlog, Discovery, In progress, Needs review, Hand-off, In development, VDQA, Done
 - Task stages: Backlog, On deck, In progress, In review, Done
 - Task types: Design, Discovery, Handoff, VDQA (and R1 / R2 / Internal), Review, Revisions
-- Categories: Marketing, Campaigns, Design system, A/B testing, Research & development, Lit, Comm & Pop
+- Categories: Marketing, Campaigns, Design system, A/B testing, Research & development, Nuvance
 
 ## Setup (15 minutes)
 

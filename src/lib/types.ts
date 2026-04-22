@@ -10,8 +10,7 @@ export type ProjectCategory =
   | "design_system"
   | "ab_testing"
   | "research_dev"
-  | "lit"
-  | "comm_pop";
+  | "nuvance";
 
 export type ProjectStatus =
   | "backlog"
@@ -152,8 +151,7 @@ export const CATEGORY_LABEL: Record<ProjectCategory, string> = {
   design_system: "Design system",
   ab_testing: "A/B testing",
   research_dev: "Research & development",
-  lit: "Lit",
-  comm_pop: "Comm & Pop",
+  nuvance: "Nuvance",
 };
 
 export const CATEGORY_COLOR: Record<ProjectCategory, string> = {
@@ -162,8 +160,7 @@ export const CATEGORY_COLOR: Record<ProjectCategory, string> = {
   design_system: "#14b8a6",
   ab_testing: "#f59e0b",
   research_dev: "#8b5cf6",
-  lit: "#0ea5e9",
-  comm_pop: "#10b981",
+  nuvance: "#0ea5e9",
 };
 
 export const TASK_TYPE_LABEL: Record<TaskType, string> = {
