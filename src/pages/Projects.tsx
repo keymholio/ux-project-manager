@@ -1,10 +1,10 @@
-import { Plus, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
+  Avatar,
   AvatarStack,
   Button,
-  CategoryBadge,
   EmptyState,
   Modal,
   PriorityBadge,
@@ -16,6 +16,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
+  CATEGORY_COLOR,
   CATEGORY_LABEL,
   PROJECT_STATUS_LABEL,
   PROJECT_STATUS_ORDER,
@@ -30,6 +31,16 @@ import {
 // Set of all valid project statuses, used to validate URL params.
 const VALID_STATUS = new Set<string>(PROJECT_STATUS_ORDER);
 const VALID_CATEGORY = new Set<string>(Object.keys(CATEGORY_LABEL));
+
+// Sort config. Team/Tools are intentionally not sortable — an avatar stack
+// or a set of tool chips has no natural ordering users would expect.
+type SortColumn = "name" | "priority" | "status" | "due_date";
+type SortDir = "asc" | "desc";
+const PRIORITY_RANK: Record<Priority, number> = { low: 1, medium: 2, high: 3 };
+const STATUS_RANK: Record<ProjectStatus, number> = PROJECT_STATUS_ORDER.reduce(
+  (acc, s, i) => ({ ...acc, [s]: i }),
+  {} as Record<ProjectStatus, number>,
+);
 
 export default function Projects() {
   const { isManager } = useAuth();
@@ -54,6 +65,20 @@ export default function Projects() {
     },
   );
   const [creating, setCreating] = useState(false);
+  // null = no explicit sort; fall back to the query's updated_at desc order.
+  const [sort, setSort] = useState<{ col: SortColumn; dir: SortDir } | null>(
+    null,
+  );
+
+  // Three-click cycle on a header: asc → desc → off. Clicking a different
+  // column starts fresh at asc.
+  const toggleSort = (col: SortColumn) => {
+    setSort((prev) => {
+      if (!prev || prev.col !== col) return { col, dir: "asc" };
+      if (prev.dir === "asc") return { col, dir: "desc" };
+      return null;
+    });
+  };
 
   // Keep the URL in sync when the user changes filters from the page itself.
   useEffect(() => {
@@ -114,6 +139,37 @@ export default function Projects() {
       return true;
     });
   }, [projects, query, statusFilter, categoryFilter]);
+
+  const sortedFiltered = useMemo(() => {
+    if (!sort) return filtered;
+    // Copy before sorting — useMemo results are cached and downstream code
+    // assumes the input array isn't mutated in place.
+    const list = [...filtered];
+    const mul = sort.dir === "asc" ? 1 : -1;
+    list.sort((a, b) => {
+      switch (sort.col) {
+        case "name":
+          return a.name.localeCompare(b.name) * mul;
+        case "priority":
+          return (PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]) * mul;
+        case "status":
+          return (STATUS_RANK[a.status] - STATUS_RANK[b.status]) * mul;
+        case "due_date": {
+          // Projects with no due date always sort to the end, regardless of
+          // direction — otherwise an asc sort would bury all the dated rows
+          // below a pile of empties.
+          if (!a.due_date && !b.due_date) return 0;
+          if (!a.due_date) return 1;
+          if (!b.due_date) return -1;
+          return (
+            (new Date(a.due_date).getTime() - new Date(b.due_date).getTime()) *
+            mul
+          );
+        }
+      }
+    });
+    return list;
+  }, [filtered, sort]);
 
   if (loading)
     return (
@@ -184,58 +240,124 @@ export default function Projects() {
             </option>
           ))}
         </select>
+        {/* Live total. Shows "X projects" when unfiltered, "X of Y" when
+            the user is narrowing the list. */}
+        <div className="ml-auto text-sm tabular-nums text-ink-500">
+          {filtered.length === projects.length
+            ? `${projects.length} project${projects.length === 1 ? "" : "s"}`
+            : `${filtered.length} of ${projects.length} projects`}
+        </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {sortedFiltered.length === 0 ? (
         <EmptyState
           title="No projects match your filters"
           hint={isManager ? "Clear filters or create a new project." : undefined}
         />
       ) : (
-        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((p) => {
-            const team = assignees
-              .filter((a) => a.project_id === p.id)
-              .map((a) => profiles.find((pr) => pr.id === a.user_id))
-              .filter((x): x is Profile => !!x);
-            return (
-              <Link
-                key={p.id}
-                to={`/projects/${p.id}`}
-                className="card p-4 hover:border-brand-500 hover:shadow-md transition"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <CategoryBadge category={p.category} />
-                  <ProjectStatusBadge status={p.status} />
-                </div>
-                <h3 className="mt-2 font-semibold text-ink-900 line-clamp-2">
-                  {p.name}
-                </h3>
-                {p.description && (
-                  <p className="mt-1 text-sm text-ink-500 line-clamp-2">
-                    {p.description}
-                  </p>
-                )}
-                <div className="mt-3 flex items-center justify-between">
-                  <AvatarStack profiles={team} />
-                  <PriorityBadge priority={p.priority} />
-                </div>
-                <div className="mt-3 flex items-center justify-between">
-                  <ToolLinks
-                    figma={p.figma_url}
-                    workfront={p.workfront_url}
-                    jira={p.jira_url}
-                    figjam={p.figjam_url}
+        <div className="card overflow-hidden">
+          {/* Header row. Widths here must match the data rows below so the
+              columns line up. The leading 2.5-wide span stands in for the
+              category dot column. */}
+          <div className="flex items-center gap-3 border-b border-ink-200 bg-ink-50/60 px-4 py-2 text-xs font-medium uppercase tracking-wide text-ink-500">
+            <span className="h-2.5 w-2.5 flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <SortableHeader
+                label="Project"
+                col="name"
+                sort={sort}
+                onToggle={toggleSort}
+              />
+            </div>
+            <div className="flex flex-shrink-0 items-center gap-3">
+              <div className="w-14">
+                <SortableHeader
+                  label="Priority"
+                  col="priority"
+                  sort={sort}
+                  onToggle={toggleSort}
+                />
+              </div>
+              <div className="w-32">
+                <SortableHeader
+                  label="Status"
+                  col="status"
+                  sort={sort}
+                  onToggle={toggleSort}
+                />
+              </div>
+              <div className="w-24">Team</div>
+              <div className="w-40">Tools</div>
+              <div className="w-20 text-right">
+                <SortableHeader
+                  label="Due"
+                  col="due_date"
+                  sort={sort}
+                  onToggle={toggleSort}
+                  align="right"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="divide-y divide-ink-100">
+            {sortedFiltered.map((p) => {
+              const team = assignees
+                .filter((a) => a.project_id === p.id)
+                .map((a) => profiles.find((pr) => pr.id === a.user_id))
+                .filter((x): x is Profile => !!x);
+              return (
+                <Link
+                  key={p.id}
+                  to={`/projects/${p.id}`}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-ink-50 transition"
+                >
+                  {/* Category indicator — tiny colored dot instead of a full
+                      chip to save horizontal space. Hover for the name. */}
+                  <span
+                    className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                    style={{ background: CATEGORY_COLOR[p.category] }}
+                    title={CATEGORY_LABEL[p.category]}
+                    aria-label={CATEGORY_LABEL[p.category]}
                   />
-                  {p.due_date && (
-                    <div className="text-xs text-ink-500">
-                      Due {formatDate(p.due_date)}
+                  {/* Name + description — takes whatever space is left. */}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-ink-900">
+                      {p.name}
                     </div>
-                  )}
-                </div>
-              </Link>
-            );
-          })}
+                    {p.description && (
+                      <div className="truncate text-xs text-ink-500">
+                        {p.description}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-3">
+                    <div className="w-14">
+                      <PriorityBadge priority={p.priority} />
+                    </div>
+                    <div className="w-32">
+                      <ProjectStatusBadge status={p.status} />
+                    </div>
+                    <div className="w-24">
+                      <AvatarStack profiles={team} size={22} />
+                    </div>
+                    <div className="w-40">
+                      <ToolLinks
+                        figma={p.figma_url}
+                        workfront={p.workfront_url}
+                        jira={p.jira_url}
+                        figjam={p.figjam_url}
+                      />
+                    </div>
+                    {/* Fixed-width date column keeps trailing dates aligned
+                        across rows, even when some projects have no due date. */}
+                    <div className="w-20 text-right text-xs tabular-nums text-ink-500">
+                      {p.due_date ? formatDate(p.due_date) : ""}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -457,6 +579,41 @@ function NewProjectModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+// Clickable column header. Renders a direction arrow only when this column
+// is the active sort, so inactive headers stay visually quiet.
+function SortableHeader({
+  label,
+  col,
+  sort,
+  onToggle,
+  align = "left",
+}: {
+  label: string;
+  col: SortColumn;
+  sort: { col: SortColumn; dir: SortDir } | null;
+  onToggle: (col: SortColumn) => void;
+  align?: "left" | "right";
+}) {
+  const active = sort?.col === col;
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(col)}
+      className={`inline-flex items-center gap-1 uppercase tracking-wide hover:text-ink-900 ${
+        active ? "text-ink-900" : ""
+      } ${align === "right" ? "justify-end" : ""}`}
+    >
+      {label}
+      {active &&
+        (sort!.dir === "asc" ? (
+          <ArrowUp size={10} />
+        ) : (
+          <ArrowDown size={10} />
+        ))}
+    </button>
   );
 }
 
