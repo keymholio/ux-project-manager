@@ -1,6 +1,6 @@
 import { Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   AvatarStack,
   Button,
@@ -27,20 +27,57 @@ import {
   type Priority,
 } from "../lib/types";
 
+// Set of all valid project statuses, used to validate URL params.
+const VALID_STATUS = new Set<string>(PROJECT_STATUS_ORDER);
+const VALID_CATEGORY = new Set<string>(Object.keys(CATEGORY_LABEL));
+
 export default function Projects() {
   const { isManager } = useAuth();
+  const [params, setParams] = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
   const [assignees, setAssignees] = useState<ProjectAssignee[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
+  // Filters are initialized from URL params so deep-links like
+  // /projects?status=backlog from the dashboard funnel work out of the box.
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">(() => {
+    const s = params.get("status");
+    return s && VALID_STATUS.has(s) ? (s as ProjectStatus) : "all";
+  });
   const [categoryFilter, setCategoryFilter] = useState<ProjectCategory | "all">(
-    "all",
+    () => {
+      const c = params.get("category");
+      return c && VALID_CATEGORY.has(c) ? (c as ProjectCategory) : "all";
+    },
   );
   const [creating, setCreating] = useState(false);
+
+  // Keep the URL in sync when the user changes filters from the page itself.
+  useEffect(() => {
+    const next = new URLSearchParams(params);
+    statusFilter === "all"
+      ? next.delete("status")
+      : next.set("status", statusFilter);
+    categoryFilter === "all"
+      ? next.delete("category")
+      : next.set("category", categoryFilter);
+    setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, categoryFilter]);
+
+  // If the user navigates (browser back/forward, or a new dashboard link),
+  // re-read the URL into state so the dropdowns reflect reality.
+  useEffect(() => {
+    const s = params.get("status");
+    setStatusFilter(s && VALID_STATUS.has(s) ? (s as ProjectStatus) : "all");
+    const c = params.get("category");
+    setCategoryFilter(
+      c && VALID_CATEGORY.has(c) ? (c as ProjectCategory) : "all",
+    );
+  }, [params]);
 
   const refresh = async () => {
     const [pRes, aRes, profRes] = await Promise.all([

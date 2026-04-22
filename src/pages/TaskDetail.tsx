@@ -67,11 +67,22 @@ export default function TaskDetail() {
 
   const updateField = async <K extends keyof Task>(field: K, value: Task[K]) => {
     if (!task || !canEdit) return;
+    // Apply the change locally right away so controlled inputs stay in sync
+    // with the user's choice. Without this, React re-renders the <select>
+    // with the old state value and it appears to snap back — the realtime
+    // subscription would eventually correct it, but only if realtime is on
+    // for the tasks table and only after a round-trip.
+    const prev = task;
+    setTask({ ...task, [field]: value });
     const { error } = await supabase
       .from("tasks")
       .update({ [field]: value })
       .eq("id", task.id);
-    if (error) setErr(error.message);
+    if (error) {
+      // Roll back the optimistic change and show the error.
+      setTask(prev);
+      setErr(error.message);
+    }
   };
 
   const deleteTask = async () => {

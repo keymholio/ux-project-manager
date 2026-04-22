@@ -180,9 +180,17 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
 
       {/* Workload by team member */}
       <section className="card p-5">
-        <h2 className="mb-3 text-sm font-semibold text-ink-900">
-          Workload by team
-        </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-ink-900">
+            Workload by team
+          </h2>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-600">
+            <LegendSwatch className="bg-ink-300" label="Backlog" />
+            <LegendSwatch className="bg-sky-400" label="On deck" />
+            <LegendSwatch className="bg-amber-400" label="In progress" />
+            <LegendSwatch className="bg-purple-400" label="In review" />
+          </div>
+        </div>
         <div className="space-y-3">
           {team.map((d) => {
             const mine = tasksByAssignee.get(d.id) ?? [];
@@ -203,6 +211,24 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
                       <div className="h-2 flex-1" />
                     ) : (
                       <>
+                        {byStatus.backlog ? (
+                          <div
+                            className="h-2 bg-ink-300"
+                            style={{
+                              flexBasis: `${(byStatus.backlog / mine.length) * 100}%`,
+                            }}
+                            title={`${byStatus.backlog} backlog`}
+                          />
+                        ) : null}
+                        {byStatus.on_deck ? (
+                          <div
+                            className="h-2 bg-sky-400"
+                            style={{
+                              flexBasis: `${(byStatus.on_deck / mine.length) * 100}%`,
+                            }}
+                            title={`${byStatus.on_deck} on deck`}
+                          />
+                        ) : null}
                         {byStatus.in_progress ? (
                           <div
                             className="h-2 bg-amber-400"
@@ -219,24 +245,6 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
                               flexBasis: `${(byStatus.in_review / mine.length) * 100}%`,
                             }}
                             title={`${byStatus.in_review} in review`}
-                          />
-                        ) : null}
-                        {byStatus.on_deck ? (
-                          <div
-                            className="h-2 bg-sky-400"
-                            style={{
-                              flexBasis: `${(byStatus.on_deck / mine.length) * 100}%`,
-                            }}
-                            title={`${byStatus.on_deck} on deck`}
-                          />
-                        ) : null}
-                        {byStatus.backlog ? (
-                          <div
-                            className="h-2 bg-ink-300"
-                            style={{
-                              flexBasis: `${(byStatus.backlog / mine.length) * 100}%`,
-                            }}
-                            title={`${byStatus.backlog} backlog`}
                           />
                         ) : null}
                       </>
@@ -257,7 +265,7 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
       </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Project funnel */}
+        {/* Project funnel — each row links to the filtered Projects view. */}
         <section className="card p-5">
           <h2 className="mb-3 text-sm font-semibold text-ink-900">
             Project funnel
@@ -267,20 +275,25 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
               const count = projectsByStatus.get(s) ?? 0;
               const max = Math.max(...Array.from(projectsByStatus.values()), 1);
               return (
-                <div key={s} className="flex items-center gap-3 text-sm">
-                  <div className="w-32 text-ink-600">
+                <Link
+                  key={s}
+                  to={`/projects?status=${s}`}
+                  className="flex items-center gap-3 rounded text-sm hover:bg-ink-50 -mx-1 px-1 py-0.5 group"
+                  title={`See ${PROJECT_STATUS_LABEL[s]} projects`}
+                >
+                  <div className="w-32 text-ink-600 group-hover:text-ink-900">
                     {PROJECT_STATUS_LABEL[s]}
                   </div>
                   <div className="flex-1 h-2 rounded-full bg-ink-100 overflow-hidden">
                     <div
-                      className="h-full bg-brand-500"
+                      className="h-full bg-brand-500 group-hover:bg-brand-600 transition-colors"
                       style={{ width: `${(count / max) * 100}%` }}
                     />
                   </div>
                   <div className="w-8 text-right tabular-nums text-ink-900">
                     {count}
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -450,6 +463,21 @@ function TaskList({
         </ul>
       )}
     </section>
+  );
+}
+
+function LegendSwatch({
+  className,
+  label,
+}: {
+  className: string;
+  label: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`h-2 w-3 rounded-sm ${className}`} />
+      {label}
+    </span>
   );
 }
 
