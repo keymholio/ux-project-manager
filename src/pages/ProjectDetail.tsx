@@ -1,4 +1,4 @@
-import { Check, Plus, Trash2 } from "lucide-react";
+import { Check, ExternalLink, GripVertical, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
@@ -51,6 +51,17 @@ const EDITABLE_FIELDS = [
 ] as const;
 type EditableField = (typeof EDITABLE_FIELDS)[number];
 
+// Quick sanity check before wiring a URL up as a clickable link. We only
+// need to keep people from accidentally navigating to a relative path or
+// something like "javascript:alert(1)" — full validation would be a
+// rabbit hole and the editor already shows the raw string in the input
+// so typos are visible. Accepts http/https and leading "//" protocol-
+// relative URLs; anything else stays un-clickable until it looks right.
+const isLikelyUrl = (s: string): boolean => {
+  const t = s.trim();
+  return /^(https?:\/\/|\/\/)/i.test(t);
+};
+
 // A blank row for the links editor. Defaults to "other" so the dropdown
 // has a concrete selection; the user picks the real type and pastes a URL.
 // Rows with an empty URL get dropped on save.
@@ -84,6 +95,12 @@ export default function ProjectDetail() {
   // Save state for the sticky bar at the bottom of the page.
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // Drag-to-reorder state for the Links editor. `dragIdx` is the row the
+  // user grabbed; `overIdx` is the row we'd drop onto if they released
+  // now, used to draw the insertion indicator. Both clear on drop/cancel.
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
 
   // Remembers which project id we've already seeded the draft from, so
   // realtime updates don't clobber in-progress edits by resetting the draft.
@@ -199,6 +216,20 @@ export default function ProjectDetail() {
   const removeLink = (i: number) => {
     if (!draft) return;
     const next = draft.links.filter((_, idx) => idx !== i);
+    setDraft({ ...draft, links: next });
+    setSavedAt(null);
+  };
+  // Reorder using "insert before target" semantics — dropping row A on
+  // row B places A where B was and pushes B (and everything after)
+  // down by one. If `from < to` we decrement `to` by 1 to account for
+  // the dragged row having been spliced out first.
+  const moveLink = (from: number, to: number) => {
+    if (!draft) return;
+    if (from === to || from + 1 === to) return;
+    const next = [...draft.links];
+    const [moved] = next.splice(from, 1);
+    const target = from < to ? to - 1 : to;
+    next.splice(target, 0, moved);
     setDraft({ ...draft, links: next });
     setSavedAt(null);
   };
@@ -451,8 +482,77 @@ export default function ProjectDetail() {
             {draft.links.map((link, i) => (
               <div
                 key={i}
-                className="flex flex-col gap-2 sm:flex-row sm:items-center"
+                // Whole row is draggable. Browsers let <input>/<select>
+                // swallow their own drag events (text selection, native
+                // dropdown open), so grabbing inside a field won't start
+                // a reorder drag — only the grip handle or the blank
+                // edges of the row will. That's what we want.
+                draggable
+                onDragStart={(e) => {
+                  setDragIdx(i);
+                  e.dataTransfer.effectAllowed = "move";
+                  // Safari needs *some* data to actually initiate the drag.
+                  e.dataTransfer.setData("text/plain", String(i));
+                }}
+                onDragOver={(e) => {
+                  if (dragIdx === null) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  // Top half of the row → insert before (position i).
+                  // Bottom half → insert after (position i+1). This lets
+                  // the user target any slot, including "after the last
+                  // row", which a row-only drop target couldn't reach.
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const pos =
+                    e.clientY - rect.top < rect.height / 2 ? i : i + 1;
+                  if (overIdx !== pos) setOverIdx(pos);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragIdx !== null && overIdx !== null)
+                    moveLink(dragIdx, overIdx);
+                  setDragIdx(null);
+                  setOverIdx(null);
+                }}
+                onDragEnd={() => {
+                  setDragIdx(null);
+                  setOverIdx(null);
+                }}
+                className={`flex flex-col gap-2 rounded-md sm:flex-row sm:items-center ${
+                  dragIdx === i ? "opacity-40" : ""
+                } ${
+                  // Draw an insertion cursor above this row when the hover
+                  // position maps to "before i" and the drop wouldn't be a
+                  // no-op (source row itself, or the row directly above).
+                  overIdx === i &&
+                  dragIdx !== null &&
+                  dragIdx !== i &&
+                  dragIdx + 1 !== i
+                    ? "border-t-2 border-brand-500"
+                    : ""
+                } ${
+                  // For the last row only, a bottom-border shows when the
+                  // drop would land after it — no next row exists to host
+                  // the top-border cursor.
+                  i === draft.links.length - 1 &&
+                  overIdx === draft.links.length &&
+                  dragIdx !== null &&
+                  dragIdx !== i
+                    ? "border-b-2 border-brand-500"
+                    : ""
+                }`}
               >
+                {/* Grip handle — visual cue that the row is draggable.
+                    The drag itself is wired on the whole row so users
+                    can grab from empty space too, but the grip is the
+                    obvious affordance and gets the "grab" cursor. */}
+                <span
+                  className="hidden sm:flex h-8 w-4 items-center justify-center text-ink-400 cursor-grab active:cursor-grabbing"
+                  aria-hidden
+                  title="Drag to reorder"
+                >
+                  <GripVertical size={14} />
+                </span>
                 <select
                   className="input sm:w-40"
                   value={link.type}
@@ -474,6 +574,27 @@ export default function ProjectDetail() {
                   onChange={(e) => updateLink(i, { url: e.target.value })}
                   placeholder="https://…"
                 />
+                {/* Open link in a new tab. Only shown when the URL field
+                    has something in it — for an empty row the button would
+                    have nothing to open. Rendered as an <a> rather than a
+                    button so middle-click, cmd-click, and right-click →
+                    "open in new window" all work the way users expect. */}
+                {link.url.trim() && isLikelyUrl(link.url) ? (
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-md p-2 text-ink-400 hover:bg-ink-100 hover:text-brand-700"
+                    aria-label="Open link in new tab"
+                    title="Open link in new tab"
+                  >
+                    <ExternalLink size={14} />
+                  </a>
+                ) : (
+                  // Placeholder keeps the delete button aligned across rows
+                  // even when the open button isn't shown yet.
+                  <span className="w-[30px]" aria-hidden />
+                )}
                 <button
                   type="button"
                   onClick={() => removeLink(i)}

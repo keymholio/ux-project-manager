@@ -65,6 +65,7 @@ export const LINK_TYPES = [
   "workfront",
   "figjam",
   "jira",
+  "presentation",
   "web",
   "other",
 ] as const;
@@ -75,6 +76,7 @@ export const LINK_TYPE_LABEL: Record<ProjectLinkType, string> = {
   workfront: "Workfront",
   figjam: "FigJam",
   jira: "Jira",
+  presentation: "Presentation",
   web: "Web",
   other: "Other",
 };

@@ -413,6 +413,8 @@ function brandChipClass(type: ProjectLinkType): string {
       return "bg-[#00b2e3]/10 text-[#00657f]";
     case "jira":
       return "bg-[#2684ff]/10 text-[#0747a6]";
+    case "presentation":
+      return "bg-[#7c3aed]/10 text-[#5b21b6]";
     case "web":
     case "other":
     default:
