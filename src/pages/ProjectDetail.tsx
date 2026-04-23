@@ -363,6 +363,16 @@ export default function ProjectDetail() {
             </span>
           )}
         </Meta>
+        {/* Only surfaces once the server has stamped completed_at (either via
+            the projects_complete trigger or on insert). Read from `project`
+            rather than `draft` so unsaved edits don't spoof a date. */}
+        {project.status === "done" && project.completed_at && (
+          <Meta label="Completed">
+            <span className="text-sm text-ink-900">
+              {formatDate(project.completed_at)}
+            </span>
+          </Meta>
+        )}
       </section>
 
       {/* Description */}

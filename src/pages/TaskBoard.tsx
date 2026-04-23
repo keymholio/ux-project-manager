@@ -12,6 +12,7 @@ import {
   ToolLinks,
   formatDate,
 } from "../components/ui";
+import { ProjectCombobox } from "../components/ProjectCombobox";
 import { useToast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -118,6 +119,13 @@ export default function TaskBoard() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    // Age-out: once a task has been 'done' for more than 15 days it falls off
+    // the board. It's still in the database — just hidden here so the Done
+    // column stops growing forever. A null completed_at (optimistic drop not
+    // yet confirmed by realtime) is treated as "just finished" so cards don't
+    // flash out mid-drag.
+    const DONE_TTL_MS = 15 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
     return tasks.filter((t) => {
       if (assigneeFilter === "mine") {
         if (t.assignee_id !== profile?.id) return false;
@@ -132,6 +140,9 @@ export default function TaskBoard() {
         } else if (t.project_id !== projectFilter) return false;
       }
       if (q && !t.title.toLowerCase().includes(q)) return false;
+      if (t.status === "done" && t.completed_at) {
+        if (now - new Date(t.completed_at).getTime() > DONE_TTL_MS) return false;
+      }
       return true;
     });
   }, [tasks, assigneeFilter, projectFilter, query, profile?.id]);
@@ -213,19 +224,16 @@ export default function TaskBoard() {
               </option>
             ))}
         </select>
-        <select
-          className="input w-auto"
+        <ProjectCombobox
           value={projectFilter}
-          onChange={(e) => setProjectFilter(e.target.value)}
-        >
-          <option value="all">All projects</option>
-          <option value="none">No project</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+          onChange={setProjectFilter}
+          projects={projects}
+          extraOptions={[
+            { id: "all", label: "All projects" },
+            { id: "none", label: "No project" },
+          ]}
+          placeholder="All projects"
+        />
       </div>
 
       {filtered.length === 0 ? (
@@ -310,8 +318,20 @@ function Column({
       onDrop={handleDrop}
     >
       <div className="flex items-center justify-between border-b border-ink-200 px-3 py-2">
-        <div className="text-xs font-semibold uppercase tracking-wide text-ink-600">
+        <div
+          className="text-xs font-semibold uppercase tracking-wide text-ink-600"
+          title={
+            status === "done"
+              ? "Showing tasks completed in the last 15 days."
+              : undefined
+          }
+        >
           {TASK_STATUS_LABEL[status]}
+          {status === "done" && (
+            <span className="ml-1 font-normal normal-case tracking-normal text-ink-400">
+              · last 15 days
+            </span>
+          )}
         </div>
         <span className="text-xs font-medium text-ink-500">{tasks.length}</span>
       </div>
@@ -449,6 +469,20 @@ function NewTaskModal({
     if (!title.trim() || !profile) return;
     setBusy(true);
     setErr(null);
+    // New tasks land at the top of their column. The board sorts by
+    // `position` ascending, so we pick one less than the current minimum
+    // for this status. Default position is 0, so the first card we create
+    // this way will get -1, the next -2, and so on — leaving room to
+    // manually reorder without collisions.
+    const { data: topRow } = await supabase
+      .from("tasks")
+      .select("position")
+      .eq("status", status)
+      .order("position", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const nextPosition = ((topRow?.position as number | undefined) ?? 0) - 1;
+
     const { data, error } = await supabase
       .from("tasks")
       .insert({
@@ -462,6 +496,7 @@ function NewTaskModal({
         assignee_id: assigneeId || null,
         figma_url: figmaUrl.trim() || null,
         created_by: profile.id,
+        position: nextPosition,
       })
       .select()
       .single();

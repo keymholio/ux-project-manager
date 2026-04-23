@@ -367,7 +367,7 @@ export default function Projects() {
                 />
               </div>
               <div className="w-40">Assigned to</div>
-              <div className="w-40">Tools</div>
+              <div className="w-40">Links</div>
               <div className="w-20 text-right">
                 <SortableHeader
                   label="Due"
@@ -459,9 +459,25 @@ export default function Projects() {
                       />
                     </div>
                     {/* Fixed-width date column keeps trailing dates aligned
-                        across rows, even when some projects have no due date. */}
-                    <div className="w-20 text-right text-xs tabular-nums text-ink-500">
-                      {p.due_date ? formatDate(p.due_date) : ""}
+                        across rows, even when some projects have no due date.
+                        For done projects we show the completion date instead
+                        of the due date — the due date stops being interesting
+                        once the work is finished. */}
+                    <div
+                      className="w-20 text-right text-xs tabular-nums text-ink-500"
+                      title={
+                        p.status === "done" && p.completed_at
+                          ? `Completed ${formatDate(p.completed_at)}`
+                          : p.due_date
+                            ? `Due ${formatDate(p.due_date)}`
+                            : undefined
+                      }
+                    >
+                      {p.status === "done" && p.completed_at
+                        ? formatDate(p.completed_at)
+                        : p.due_date
+                          ? formatDate(p.due_date)
+                          : ""}
                     </div>
                     <div className="flex w-16 justify-end">
                       <PriorityBadge priority={p.priority} />

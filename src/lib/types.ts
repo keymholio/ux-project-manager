@@ -65,6 +65,7 @@ export interface Project {
   jira_url: string | null;
   figjam_url: string | null;
   owner_id: string;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 }

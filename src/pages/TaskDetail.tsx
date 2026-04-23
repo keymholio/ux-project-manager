@@ -2,6 +2,7 @@ import { ArrowLeft, Check, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
+import { ProjectCombobox } from "../components/ProjectCombobox";
 import {
   Avatar,
   Button,
@@ -327,18 +328,16 @@ export default function TaskDetail() {
         </Meta>
         <Meta label="Project">
           {isManager ? (
-            <select
-              className="input"
+            // "" is our null sentinel — the DB stores null when no project is
+            // assigned, and the combobox only deals in string values.
+            <ProjectCombobox
               value={draft.project_id ?? ""}
-              onChange={(e) => setField("project_id", e.target.value || null)}
-            >
-              <option value="">— No project —</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setField("project_id", v || null)}
+              projects={projects}
+              extraOptions={[{ id: "", label: "— No project —" }]}
+              placeholder="— No project —"
+              className="w-full"
+            />
           ) : draft.project_id ? (
             <Link
               to={`/projects/${draft.project_id}`}

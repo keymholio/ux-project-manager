@@ -37,9 +37,30 @@
     @apply text-ink-600 hover:bg-ink-100 hover:text-ink-900;
   }
   .input {
-    @apply w-full rounded-md border border-ink-200 bg-white px-3 py-1.5 text-sm
-           text-ink-900 placeholder:text-ink-400 focus:border-brand-500
+    @apply block w-full rounded-md border border-ink-200 bg-white px-3 py-1.5
+           text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-500
            focus:outline-none focus:ring-2 focus:ring-brand-500/20;
+  }
+  /* Pin a fixed 34px height on single-line inputs and selects so all three
+     (text input, date input, select, and the combobox which is a text input)
+     line up pixel-for-pixel. box-border keeps padding inside that 34px.
+     Textareas are intentionally excluded — they should grow with `rows`. */
+  input.input,
+  select.input {
+    @apply h-[34px] box-border leading-tight;
+  }
+  /* Strip the native <select> chrome and draw our own chevron so the field
+     matches the rest exactly. Inline SVG avoids an extra asset request. */
+  select.input {
+    @apply appearance-none bg-no-repeat pr-8;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2364748b' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 8 10 12 14 8'/></svg>");
+    background-position: right 0.5rem center;
+    background-size: 1rem 1rem;
+  }
+  /* Safari pads date inputs from the inside; reset that so the value sits on
+     the same baseline as everything else. */
+  input[type="date"].input::-webkit-datetime-edit {
+    padding: 0;
   }
   .card {
     @apply rounded-lg border border-ink-200 bg-white shadow-card;
