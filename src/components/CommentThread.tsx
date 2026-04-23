@@ -24,6 +24,12 @@ export default function CommentThread({
   const filterColumn = taskId ? "task_id" : "project_id";
   const filterValue = taskId ?? projectId;
 
+  // Note: we optimistically update `comments` after insert/delete below
+  // instead of relying solely on realtime — realtime needs the `comments`
+  // table enabled on Supabase → Database → Replication, and if it isn't
+  // the thread would appear frozen until a reload. The realtime channel
+  // below is still subscribed and will dedupe/catch up other clients.
+
   useEffect(() => {
     if (!filterValue) return;
     let active = true;
@@ -70,23 +76,42 @@ export default function CommentThread({
   const submit = async () => {
     if (!body.trim() || !profile) return;
     setBusy(true);
-    const { error } = await supabase.from("comments").insert({
-      body: body.trim(),
-      author_id: profile.id,
-      task_id: taskId ?? null,
-      project_id: projectId ?? null,
-    });
+    // Grab the inserted row back so we can optimistically append it.
+    // Feels instant even if realtime is disabled or slow.
+    const { data, error } = await supabase
+      .from("comments")
+      .insert({
+        body: body.trim(),
+        author_id: profile.id,
+        task_id: taskId ?? null,
+        project_id: projectId ?? null,
+      })
+      .select()
+      .single();
     if (error) {
       alert(error.message);
     } else {
       setBody("");
+      if (data) {
+        // Dedupe in case realtime races us and fires first.
+        setComments((prev) =>
+          prev.some((c) => c.id === data.id) ? prev : [...prev, data],
+        );
+      }
     }
     setBusy(false);
   };
 
   const deleteComment = async (id: string) => {
     if (!confirm("Delete this comment?")) return;
-    await supabase.from("comments").delete().eq("id", id);
+    const { error } = await supabase.from("comments").delete().eq("id", id);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    // Optimistic remove; realtime would do this eventually but we don't
+    // want to wait.
+    setComments((prev) => prev.filter((c) => c.id !== id));
   };
 
   return (
