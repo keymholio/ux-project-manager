@@ -56,7 +56,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           re-enable pointer events so the × button works. */}
       <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col items-end gap-2">
         {toasts.map((t) => (
-          <ToastItem key={t.id} toast={t} onDismiss={() => dismiss(t.id)} />
+          <ToastItem key={t.id} toast={t} dismiss={dismiss} />
         ))}
       </div>
     </ToastCtx.Provider>
@@ -65,26 +65,31 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 function ToastItem({
   toast,
-  onDismiss,
+  dismiss,
 }: {
   toast: ToastEntry;
-  onDismiss: () => void;
+  // Stable reference — ToastProvider wraps `dismiss` in useCallback with []
+  // deps. Passing it down as-is (instead of `onDismiss={() => dismiss(t.id)}`)
+  // keeps this component's effect dependencies stable, so the fade-in/auto-
+  // dismiss timers aren't torn down every time ToastProvider re-renders.
+  dismiss: (id: number) => void;
 }) {
   // Fade in on mount, fade out before removal. We auto-dismiss after 3s.
   const [visible, setVisible] = useState(false);
+  const id = toast.id;
 
   useEffect(() => {
     // Paint once with opacity-0 then flip to opacity-100 on the next frame
     // so the CSS transition actually runs.
     const raf = requestAnimationFrame(() => setVisible(true));
-    const timer = setTimeout(() => setVisible(false), 2700);
-    const cleanup = setTimeout(onDismiss, 3000);
+    const fadeTimer = setTimeout(() => setVisible(false), 2700);
+    const dismissTimer = setTimeout(() => dismiss(id), 3000);
     return () => {
       cancelAnimationFrame(raf);
-      clearTimeout(timer);
-      clearTimeout(cleanup);
+      clearTimeout(fadeTimer);
+      clearTimeout(dismissTimer);
     };
-  }, [onDismiss]);
+  }, [dismiss, id]);
 
   const toneCls =
     toast.variant === "success"
@@ -100,7 +105,7 @@ function ToastItem({
     >
       <span>{toast.message}</span>
       <button
-        onClick={onDismiss}
+        onClick={() => dismiss(id)}
         className="rounded text-white/80 hover:text-white"
         aria-label="Dismiss"
       >
