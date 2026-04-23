@@ -1,10 +1,11 @@
-import { ArrowLeft, Check, Trash2 } from "lucide-react";
+import { Check, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
 import { ProjectCombobox } from "../components/ProjectCombobox";
 import {
   Avatar,
+  Breadcrumbs,
   Button,
   PriorityBadge,
   Spinner,
@@ -20,6 +21,8 @@ import {
   TASK_STATUS_LABEL,
   TASK_STATUS_ORDER,
   TASK_TYPE_LABEL,
+  fmtProjectId,
+  fmtTaskId,
   type Priority,
   type Profile,
   type Project,
@@ -69,6 +72,9 @@ export default function TaskDetail() {
   // Tracks which task id the draft was seeded from so realtime updates
   // don't overwrite in-progress edits on their way in.
   const initedForIdRef = useRef<string | null>(null);
+  // Anchored to the Project Meta below so the "Add project" breadcrumb
+  // has a target to scroll into view.
+  const projectFieldRef = useRef<HTMLDivElement | null>(null);
 
   const load = async () => {
     if (!id) return;
@@ -197,17 +203,42 @@ export default function TaskDetail() {
     a.full_name.localeCompare(b.full_name),
   );
 
+  // Scroll the Project field into view and try to focus the combobox input.
+  // Used when a task has no project and the user clicks the "Add project"
+  // crumb in the breadcrumb — it gives them a direct path from that pointer
+  // down to the field they need to fill in.
+  const focusProjectField = () => {
+    const el = projectFieldRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const input = el.querySelector<HTMLInputElement>('input[role="combobox"], input');
+    input?.focus();
+  };
+
+  const projectForTask = draft.project_id
+    ? projects.find((p) => p.id === draft.project_id) ?? null
+    : null;
+
   return (
     <div className="p-6 max-w-4xl space-y-5 pb-24">
-      <div>
-        <Link
-          to="/tasks"
-          className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-900"
-        >
-          <ArrowLeft size={14} />
-          Back to board
-        </Link>
-      </div>
+      <Breadcrumbs
+        items={[
+          { label: "Tasks", to: "/tasks" },
+          projectForTask
+            ? {
+                label: fmtProjectId(projectForTask.short_id),
+                to: `/projects/${projectForTask.id}`,
+              }
+            : isManager
+              ? {
+                  label: "Add project",
+                  onClick: focusProjectField,
+                  accent: true,
+                }
+              : { label: "No project" },
+          { label: fmtTaskId(task.short_id), current: true },
+        ]}
+      />
 
       <header className="flex items-start justify-between gap-4">
         <div className="flex-1">
@@ -326,29 +357,31 @@ export default function TaskDetail() {
             <TaskTypeBadge type={draft.task_type} />
           )}
         </Meta>
-        <Meta label="Project">
-          {isManager ? (
-            // "" is our null sentinel — the DB stores null when no project is
-            // assigned, and the combobox only deals in string values.
-            <ProjectCombobox
-              value={draft.project_id ?? ""}
-              onChange={(v) => setField("project_id", v || null)}
-              projects={projects}
-              extraOptions={[{ id: "", label: "— No project —" }]}
-              placeholder="— No project —"
-              className="w-full"
-            />
-          ) : draft.project_id ? (
-            <Link
-              to={`/projects/${draft.project_id}`}
-              className="text-sm text-brand-700 hover:underline"
-            >
-              {projects.find((p) => p.id === draft.project_id)?.name ?? "—"}
-            </Link>
-          ) : (
-            <span className="text-sm text-ink-500">—</span>
-          )}
-        </Meta>
+        <div ref={projectFieldRef}>
+          <Meta label="Project">
+            {isManager ? (
+              // "" is our null sentinel — the DB stores null when no project is
+              // assigned, and the combobox only deals in string values.
+              <ProjectCombobox
+                value={draft.project_id ?? ""}
+                onChange={(v) => setField("project_id", v || null)}
+                projects={projects}
+                extraOptions={[{ id: "", label: "— No project —" }]}
+                placeholder="— No project —"
+                className="w-full"
+              />
+            ) : draft.project_id ? (
+              <Link
+                to={`/projects/${draft.project_id}`}
+                className="text-sm text-brand-700 hover:underline"
+              >
+                {projects.find((p) => p.id === draft.project_id)?.name ?? "—"}
+              </Link>
+            ) : (
+              <span className="text-sm text-ink-500">—</span>
+            )}
+          </Meta>
+        </div>
       </section>
 
       {/* Description */}

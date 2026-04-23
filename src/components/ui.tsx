@@ -1,11 +1,8 @@
 // Small, self-contained UI primitives used across pages. Kept in one file
 // because they're each tiny and this avoids a forest of one-liner components.
 
-import {
-  type ReactNode,
-  type ButtonHTMLAttributes,
-  type HTMLAttributes,
-} from "react";
+import { Fragment, type ReactNode, type ButtonHTMLAttributes, type HTMLAttributes } from "react";
+import { Link } from "react-router-dom";
 import {
   CATEGORY_COLOR,
   CATEGORY_LABEL,
@@ -23,6 +20,55 @@ import {
   type TaskStatus,
   type TaskType,
 } from "../lib/types";
+
+// ---------- Breadcrumbs ----------
+// Jira-style breadcrumb strip. Each crumb is either a link (pass `to`) or
+// an action/button (pass `onClick`) or inert text (pass neither). Pass an
+// array of crumbs in order — the component adds the "/" separators itself
+// so callers don't duplicate styling for them.
+export interface Crumb {
+  label: ReactNode;
+  to?: string;
+  onClick?: () => void;
+  /** When true, render in the accent color so the user notices it — used
+   *  for "Add project" on a task that's missing one. */
+  accent?: boolean;
+  /** When true, treat this as the current page (muted, non-interactive). */
+  current?: boolean;
+}
+export function Breadcrumbs({ items }: { items: Crumb[] }) {
+  return (
+    <nav
+      aria-label="Breadcrumb"
+      className="flex flex-wrap items-center gap-1 text-sm text-ink-500"
+    >
+      {items.map((c, i) => {
+        const cls = c.current
+          ? "font-medium text-ink-900"
+          : c.accent
+            ? "text-brand-600 hover:text-brand-700 hover:underline"
+            : "hover:text-ink-900 hover:underline";
+        const node = c.to ? (
+          <Link to={c.to} className={cls}>
+            {c.label}
+          </Link>
+        ) : c.onClick ? (
+          <button type="button" onClick={c.onClick} className={cls}>
+            {c.label}
+          </button>
+        ) : (
+          <span className={cls}>{c.label}</span>
+        );
+        return (
+          <Fragment key={i}>
+            {i > 0 && <span className="text-ink-300">/</span>}
+            {node}
+          </Fragment>
+        );
+      })}
+    </nav>
+  );
+}
 
 // ---------- Avatar ----------
 export function Avatar({

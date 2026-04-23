@@ -21,6 +21,8 @@ import {
   TASK_STATUS_LABEL,
   TASK_STATUS_ORDER,
   TASK_TYPE_LABEL,
+  fmtProjectId,
+  fmtTaskId,
   type Priority,
   type Profile,
   type Project,
@@ -401,16 +403,24 @@ function TaskCard({
       }}
       className="card p-3 hover:border-brand-500 cursor-grab active:cursor-grabbing block select-none"
     >
-      <div className="flex items-start justify-between gap-2">
-        <TaskTypeBadge type={task.task_type} />
-        <PriorityBadge priority={task.priority} />
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-[10px] tabular-nums text-ink-400">
+          {fmtTaskId(task.short_id)}
+        </span>
+        <div className="flex items-center gap-1">
+          <TaskTypeBadge type={task.task_type} />
+          <PriorityBadge priority={task.priority} />
+        </div>
       </div>
       <div className="mt-1.5 text-sm font-medium text-ink-900 line-clamp-3">
         {task.title}
       </div>
       {project && (
-        <div className="mt-1 truncate text-xs text-ink-500">
-          {project.name}
+        <div className="mt-1 flex items-center gap-1.5 truncate text-xs text-ink-500">
+          <span className="font-mono tabular-nums text-ink-400">
+            {fmtProjectId(project.short_id)}
+          </span>
+          <span className="truncate">{project.name}</span>
         </div>
       )}
       <div className="mt-2">

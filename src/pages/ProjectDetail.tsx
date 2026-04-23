@@ -1,9 +1,10 @@
-import { ArrowLeft, Check, Plus, Trash2 } from "lucide-react";
+import { Check, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
 import {
   Avatar,
+  Breadcrumbs,
   Button,
   CategoryBadge,
   LinkList,
@@ -21,6 +22,8 @@ import {
   LINK_TYPE_LABEL,
   PROJECT_STATUS_LABEL,
   PROJECT_STATUS_ORDER,
+  fmtProjectId,
+  fmtTaskId,
   type Priority,
   type Profile,
   type Project,
@@ -302,15 +305,12 @@ export default function ProjectDetail() {
   return (
     // Extra bottom padding so the sticky save bar never covers content.
     <div className="p-6 max-w-5xl space-y-5 pb-24">
-      <div>
-        <Link
-          to="/projects"
-          className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-900"
-        >
-          <ArrowLeft size={14} />
-          Projects
-        </Link>
-      </div>
+      <Breadcrumbs
+        items={[
+          { label: "Projects", to: "/projects" },
+          { label: fmtProjectId(project.short_id), current: true },
+        ]}
+      />
 
       <header className="flex items-start justify-between gap-4">
         <div className="flex-1">
@@ -563,6 +563,9 @@ export default function ProjectDetail() {
                     to={`/tasks/${t.id}`}
                     className="flex items-center gap-3 rounded hover:bg-ink-50 -mx-1 px-1"
                   >
+                    <span className="w-12 flex-shrink-0 font-mono text-xs tabular-nums text-ink-400">
+                      {fmtTaskId(t.short_id)}
+                    </span>
                     <Avatar profile={a} size={22} />
                     <div className="flex-1 min-w-0">
                       <div className="truncate text-sm font-medium text-ink-900">

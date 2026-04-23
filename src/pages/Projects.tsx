@@ -23,6 +23,7 @@ import {
   LINK_TYPE_LABEL,
   PROJECT_STATUS_LABEL,
   PROJECT_STATUS_ORDER,
+  fmtProjectId,
   type Profile,
   type Project,
   type ProjectAssignee,
@@ -365,6 +366,7 @@ export default function Projects() {
               columns line up. Order: Project → Category → Status → Assigned
               to → Tools → Due → Priority (rightmost). */}
           <div className="flex items-center gap-3 border-b border-ink-200 bg-ink-50/60 px-4 py-2 text-xs font-medium uppercase tracking-wide text-ink-500">
+            <div className="w-14 flex-shrink-0">ID</div>
             <div className="min-w-0 flex-1">
               <SortableHeader
                 label="Project"
@@ -424,6 +426,13 @@ export default function Projects() {
                   to={`/projects/${p.id}`}
                   className="flex items-center gap-3 px-4 py-3 hover:bg-ink-50 transition"
                 >
+                  {/* Short ID — fixed-width so rows align. Same Jira-style
+                      identifier surfaced in the breadcrumb on the detail
+                      page, so users can match what they see in the list
+                      against what they've shared in Slack etc. */}
+                  <div className="w-14 flex-shrink-0 font-mono text-xs tabular-nums text-ink-500">
+                    {fmtProjectId(p.short_id)}
+                  </div>
                   {/* Name + description — takes whatever space is left. */}
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-ink-900">

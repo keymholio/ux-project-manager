@@ -84,8 +84,15 @@ export interface ProjectLink {
   url: string;
 }
 
+// Short, human-readable ID formatters. The DB hands out a sequential int
+// per table (see migration 006); we present it as `P-12` / `T-45` in the
+// UI — breadcrumbs, list rows, cards, anywhere the UUID would be noise.
+export const fmtProjectId = (n: number) => `P-${n}`;
+export const fmtTaskId = (n: number) => `T-${n}`;
+
 export interface Project {
   id: string;
+  short_id: number;
   name: string;
   description: string | null;
   category: ProjectCategory;
@@ -110,6 +117,7 @@ export interface ProjectAssignee {
 
 export interface Task {
   id: string;
+  short_id: number;
   title: string;
   description: string | null;
   task_type: TaskType;
