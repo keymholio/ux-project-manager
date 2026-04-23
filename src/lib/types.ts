@@ -52,6 +52,38 @@ export interface Profile {
   created_at: string;
 }
 
+// User-defined link attached to a project. Stored as a jsonb array on
+// projects.links. Legacy figma_url / figjam_url / workfront_url / jira_url
+// columns still exist on the row but are no longer edited from the UI —
+// they were backfilled into this array by migration 004.
+//
+// `type` is constrained to a fixed set so the UI can pick an icon/color
+// without having to guess at freeform labels. You can stack as many of
+// each type as you want (two Figma links, three docs under "web", etc.).
+export const LINK_TYPES = [
+  "figma",
+  "workfront",
+  "figjam",
+  "jira",
+  "web",
+  "other",
+] as const;
+export type ProjectLinkType = (typeof LINK_TYPES)[number];
+
+export const LINK_TYPE_LABEL: Record<ProjectLinkType, string> = {
+  figma: "Figma",
+  workfront: "Workfront",
+  figjam: "FigJam",
+  jira: "Jira",
+  web: "Web",
+  other: "Other",
+};
+
+export interface ProjectLink {
+  type: ProjectLinkType;
+  url: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -64,6 +96,7 @@ export interface Project {
   workfront_url: string | null;
   jira_url: string | null;
   figjam_url: string | null;
+  links: ProjectLink[];
   owner_id: string;
   completed_at: string | null;
   created_at: string;

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Plus, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -6,11 +6,11 @@ import {
   AvatarStack,
   Button,
   EmptyState,
+  LinkList,
   Modal,
   PriorityBadge,
   ProjectStatusBadge,
   Spinner,
-  ToolLinks,
   formatDate,
 } from "../components/ui";
 import { useToast } from "../components/Toast";
@@ -19,12 +19,15 @@ import { supabase } from "../lib/supabase";
 import {
   CATEGORY_COLOR,
   CATEGORY_LABEL,
+  LINK_TYPES,
+  LINK_TYPE_LABEL,
   PROJECT_STATUS_LABEL,
   PROJECT_STATUS_ORDER,
   type Profile,
   type Project,
   type ProjectAssignee,
   type ProjectCategory,
+  type ProjectLink,
   type ProjectStatus,
   type Priority,
 } from "../lib/types";
@@ -215,6 +218,17 @@ export default function Projects() {
     });
   }, [projects, query, statusFilter, categoryFilter]);
 
+  // Reference count used for the header total. "Active" here means the
+  // same thing as the Active status filter — anything that's not parked
+  // in Backlog or shipped as Done. This is the number the team actually
+  // cares about as "how much is on our plate right now".
+  const activeCount = useMemo(
+    () =>
+      projects.filter((p) => p.status !== "backlog" && p.status !== "done")
+        .length,
+    [projects],
+  );
+
   const sortedFiltered = useMemo(() => {
     if (!sort) return filtered;
     // Copy before sorting — useMemo results are cached and downstream code
@@ -321,12 +335,22 @@ export default function Projects() {
             </option>
           ))}
         </select>
-        {/* Live total. Shows "X projects" when unfiltered, "X of Y" when
-            the user is narrowing the list. */}
+        {/* Live total. The reference number ("Y") depends on the status
+            filter: on "All statuses" we show the grand total, otherwise we
+            anchor on active projects (everything except Backlog and Done)
+            so the headline reflects current workload rather than being
+            skewed by the parked ends of the funnel. When the visible list
+            exactly matches the reference set we drop the "X of" prefix. */}
         <div className="ml-auto text-sm tabular-nums text-ink-500">
-          {filtered.length === projects.length
-            ? `${projects.length} project${projects.length === 1 ? "" : "s"}`
-            : `${filtered.length} of ${projects.length} projects`}
+          {(() => {
+            const useAll = statusFilter === "all";
+            const baseCount = useAll ? projects.length : activeCount;
+            const noun = useAll ? "project" : "active project";
+            const plural = baseCount === 1 ? "" : "s";
+            return filtered.length === baseCount
+              ? `${baseCount} ${noun}${plural}`
+              : `${filtered.length} of ${baseCount} ${noun}s`;
+          })()}
         </div>
       </div>
 
@@ -450,13 +474,11 @@ export default function Projects() {
                         </>
                       )}
                     </div>
-                    <div className="w-40">
-                      <ToolLinks
-                        figma={p.figma_url}
-                        workfront={p.workfront_url}
-                        jira={p.jira_url}
-                        figjam={p.figjam_url}
-                      />
+                    <div className="w-40 overflow-hidden">
+                      {/* Cap to 2 visible chips so long link lists don't
+                          blow out the row. Anything beyond renders as a
+                          "+N" pill with the full list in the tooltip. */}
+                      <LinkList links={p.links} max={2} />
                     </div>
                     {/* Fixed-width date column keeps trailing dates aligned
                         across rows, even when some projects have no due date.
@@ -534,9 +556,8 @@ function NewProjectModal({
   const [status, setStatus] = useState<ProjectStatus>("backlog");
   const [priority, setPriority] = useState<Priority>("medium");
   const [dueDate, setDueDate] = useState("");
-  const [figmaUrl, setFigmaUrl] = useState("");
-  const [workfrontUrl, setWorkfrontUrl] = useState("");
-  const [jiraUrl, setJiraUrl] = useState("");
+  // Links are freeform now. Empty rows get dropped before insert.
+  const [links, setLinks] = useState<ProjectLink[]>([]);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -550,6 +571,9 @@ function NewProjectModal({
     if (!name.trim() || !profile) return;
     setBusy(true);
     setErr(null);
+    const cleanedLinks = links
+      .map((l) => ({ type: l.type, url: l.url.trim() }))
+      .filter((l) => l.url);
     const { data, error } = await supabase
       .from("projects")
       .insert({
@@ -559,9 +583,7 @@ function NewProjectModal({
         status,
         priority,
         due_date: dueDate || null,
-        figma_url: figmaUrl.trim() || null,
-        workfront_url: workfrontUrl.trim() || null,
-        jira_url: jiraUrl.trim() || null,
+        links: cleanedLinks,
         owner_id: profile.id,
       })
       .select()
@@ -688,30 +710,76 @@ function NewProjectModal({
             })}
           </div>
         </Field>
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="Figma URL">
-            <input
-              className="input"
-              value={figmaUrl}
-              onChange={(e) => setFigmaUrl(e.target.value)}
-              placeholder="https://figma.com/…"
-            />
-          </Field>
-          <Field label="Workfront URL">
-            <input
-              className="input"
-              value={workfrontUrl}
-              onChange={(e) => setWorkfrontUrl(e.target.value)}
-            />
-          </Field>
-          <Field label="Jira URL">
-            <input
-              className="input"
-              value={jiraUrl}
-              onChange={(e) => setJiraUrl(e.target.value)}
-            />
-          </Field>
-        </div>
+        <Field label="Links">
+          <div className="space-y-2">
+            {links.length === 0 && (
+              <p className="text-xs text-ink-500">
+                Optional — add any links you'd like to associate with the
+                project (Figma, Workfront, docs, etc.).
+              </p>
+            )}
+            {links.map((link, i) => (
+              <div
+                key={i}
+                className="flex flex-col gap-2 sm:flex-row sm:items-center"
+              >
+                <select
+                  className="input sm:w-40"
+                  value={link.type}
+                  onChange={(e) =>
+                    setLinks((prev) => {
+                      const next = [...prev];
+                      next[i] = {
+                        ...next[i],
+                        type: e.target.value as ProjectLink["type"],
+                      };
+                      return next;
+                    })
+                  }
+                >
+                  {LINK_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {LINK_TYPE_LABEL[t]}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="input flex-1"
+                  value={link.url}
+                  onChange={(e) =>
+                    setLinks((prev) => {
+                      const next = [...prev];
+                      next[i] = { ...next[i], url: e.target.value };
+                      return next;
+                    })
+                  }
+                  placeholder="https://…"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setLinks((prev) => prev.filter((_, idx) => idx !== i))
+                  }
+                  className="rounded-md p-2 text-ink-400 hover:bg-ink-100 hover:text-rose-600"
+                  aria-label="Remove link"
+                  title="Remove link"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() =>
+                setLinks((prev) => [...prev, { type: "other", url: "" }])
+              }
+              className="btn btn-secondary"
+            >
+              <Plus size={14} />
+              Add link
+            </button>
+          </div>
+        </Field>
         {err && (
           <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
             {err}

@@ -6,23 +6,26 @@ import {
   Avatar,
   Button,
   CategoryBadge,
+  LinkList,
   PriorityBadge,
   ProjectStatusBadge,
   Spinner,
   TaskStatusBadge,
-  ToolLinks,
   formatDate,
 } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
   CATEGORY_LABEL,
+  LINK_TYPES,
+  LINK_TYPE_LABEL,
   PROJECT_STATUS_LABEL,
   PROJECT_STATUS_ORDER,
   type Priority,
   type Profile,
   type Project,
   type ProjectCategory,
+  type ProjectLink,
   type ProjectStatus,
   type Task,
 } from "../lib/types";
@@ -30,6 +33,11 @@ import {
 // Fields the user can edit. Used both for diffing draft ↔ server and for
 // building the UPDATE payload when saving. Everything else (id, owner_id,
 // created_at, updated_at) is server-managed and should never be sent back.
+// NB: `links` is an array so referential-equality diffing doesn't work —
+// we handle it separately in isDirty/save below. The legacy figma_url /
+// workfront_url / jira_url / figjam_url columns still exist on the row
+// but are no longer exposed as editable fields; their values were folded
+// into `links` by migration 004.
 const EDITABLE_FIELDS = [
   "name",
   "description",
@@ -37,12 +45,21 @@ const EDITABLE_FIELDS = [
   "category",
   "priority",
   "due_date",
-  "figma_url",
-  "workfront_url",
-  "jira_url",
-  "figjam_url",
 ] as const;
 type EditableField = (typeof EDITABLE_FIELDS)[number];
+
+// A blank row for the links editor. Defaults to "other" so the dropdown
+// has a concrete selection; the user picks the real type and pastes a URL.
+// Rows with an empty URL get dropped on save.
+const emptyLink = (): ProjectLink => ({ type: "other", url: "" });
+
+// Strip empty rows and trim whitespace before persisting. We compare the
+// cleaned result against the server snapshot so "picked a type then cleared
+// the URL" doesn't count as dirty.
+const cleanLinks = (links: ProjectLink[]): ProjectLink[] =>
+  links
+    .map((l) => ({ type: l.type, url: l.url.trim() }))
+    .filter((l) => l.url);
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -116,6 +133,10 @@ export default function ProjectDetail() {
     for (const key of EDITABLE_FIELDS) {
       if (draft[key] !== project[key]) return true;
     }
+    // Order-dependent JSON comparison for the links array — the order
+    // the user arranges them in is meaningful, so we shouldn't sort.
+    if (JSON.stringify(cleanLinks(draft.links)) !== JSON.stringify(project.links))
+      return true;
     // Order-independent assignee comparison.
     if (draftAssigneeIds.length !== assigneeIds.length) return true;
     const a = [...draftAssigneeIds].sort();
@@ -159,6 +180,26 @@ export default function ProjectDetail() {
     setSavedAt(null);
   };
 
+  // --- Links editor helpers --------------------------------------------------
+  const updateLink = (i: number, patch: Partial<ProjectLink>) => {
+    if (!draft) return;
+    const next = [...draft.links];
+    next[i] = { ...next[i], ...patch };
+    setDraft({ ...draft, links: next });
+    setSavedAt(null);
+  };
+  const addLink = () => {
+    if (!draft) return;
+    setDraft({ ...draft, links: [...draft.links, emptyLink()] });
+    setSavedAt(null);
+  };
+  const removeLink = (i: number) => {
+    if (!draft) return;
+    const next = draft.links.filter((_, idx) => idx !== i);
+    setDraft({ ...draft, links: next });
+    setSavedAt(null);
+  };
+
   const save = async () => {
     if (!draft || !project || !isDirty) return;
     setSaving(true);
@@ -170,6 +211,10 @@ export default function ProjectDetail() {
       if (draft[key] !== project[key]) {
         (fieldDiff as Record<string, unknown>)[key] = draft[key];
       }
+    }
+    const cleanedLinks = cleanLinks(draft.links);
+    if (JSON.stringify(cleanedLinks) !== JSON.stringify(project.links)) {
+      (fieldDiff as Record<string, unknown>).links = cleanedLinks;
     }
     if (Object.keys(fieldDiff).length > 0) {
       const { error } = await supabase
@@ -397,32 +442,60 @@ export default function ProjectDetail() {
       <section className="card p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-900">Links</h2>
         {isManager ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {(["figma_url", "workfront_url", "jira_url", "figjam_url"] as const).map(
-              (f) => (
-                <label key={f} className="block">
-                  <span className="mb-1 block text-xs font-medium text-ink-600">
-                    {
-                      { figma_url: "Figma", workfront_url: "Workfront", jira_url: "Jira", figjam_url: "FigJam" }[f]
-                    }
-                  </span>
-                  <input
-                    className="input"
-                    value={draft[f] ?? ""}
-                    onChange={(e) => setField(f, e.target.value || null)}
-                    placeholder="https://…"
-                  />
-                </label>
-              ),
+          <div className="space-y-2">
+            {draft.links.length === 0 && (
+              <p className="text-xs text-ink-500">
+                No links yet. Add Figma, Workfront, docs, anything relevant.
+              </p>
             )}
+            {draft.links.map((link, i) => (
+              <div
+                key={i}
+                className="flex flex-col gap-2 sm:flex-row sm:items-center"
+              >
+                <select
+                  className="input sm:w-40"
+                  value={link.type}
+                  onChange={(e) =>
+                    updateLink(i, {
+                      type: e.target.value as ProjectLink["type"],
+                    })
+                  }
+                >
+                  {LINK_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {LINK_TYPE_LABEL[t]}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="input flex-1"
+                  value={link.url}
+                  onChange={(e) => updateLink(i, { url: e.target.value })}
+                  placeholder="https://…"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeLink(i)}
+                  className="rounded-md p-2 text-ink-400 hover:bg-ink-100 hover:text-rose-600"
+                  aria-label="Remove link"
+                  title="Remove link"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addLink}
+              className="btn btn-secondary"
+            >
+              <Plus size={14} />
+              Add link
+            </button>
           </div>
         ) : (
-          <ToolLinks
-            figma={draft.figma_url}
-            workfront={draft.workfront_url}
-            jira={draft.jira_url}
-            figjam={draft.figjam_url}
-          />
+          <LinkList links={draft.links} />
         )}
       </section>
 

@@ -9,11 +9,14 @@ import {
 import {
   CATEGORY_COLOR,
   CATEGORY_LABEL,
+  LINK_TYPE_LABEL,
   PRIORITY_LABEL,
   PROJECT_STATUS_LABEL,
   TASK_STATUS_LABEL,
   TASK_TYPE_LABEL,
   type ProjectCategory,
+  type ProjectLink,
+  type ProjectLinkType,
   type ProjectStatus,
   type Priority,
   type Profile,
@@ -286,6 +289,89 @@ export function ToolLinks({
       ))}
     </div>
   );
+}
+
+// ---------- Link list (projects) ----------
+// Renders { type, url } chips. `type` is one of the fixed link types so
+// we always know which brand color to use. Duplicates are fine —
+// a project can have two Figma links, three "web" links, whatever.
+//
+// NB: the renderer also tolerates the legacy { label, url } shape that
+// migration 004's first pass produced. Migration 005 normalizes those rows
+// to the new shape, but until that migration runs the UI would otherwise
+// render a blank chip — so we fall back to matching the old label here.
+export function LinkList({
+  links,
+  max,
+}: {
+  links: ProjectLink[] | null | undefined;
+  /** If set, cap visible chips at this count and show a "+N more" pill. */
+  max?: number;
+}) {
+  if (!links || links.length === 0) return null;
+  const visible = typeof max === "number" ? links.slice(0, max) : links;
+  const hidden = typeof max === "number" ? links.length - visible.length : 0;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {visible.map((l, i) => {
+        const type = resolveLinkType(l);
+        return (
+          <a
+            key={`${type}-${l.url}-${i}`}
+            href={l.url}
+            target="_blank"
+            rel="noreferrer"
+            className={`chip hover:underline ${brandChipClass(type)}`}
+            onClick={(e) => e.stopPropagation()}
+            title={l.url}
+          >
+            {LINK_TYPE_LABEL[type]} ↗
+          </a>
+        );
+      })}
+      {hidden > 0 && (
+        <span
+          className="chip bg-ink-100 text-ink-600"
+          title={links
+            .slice(visible.length)
+            .map((l) => `${LINK_TYPE_LABEL[resolveLinkType(l)]}: ${l.url}`)
+            .join(", ")}
+        >
+          +{hidden}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// Coerce a link row to a known ProjectLinkType. Handles both the new
+// { type, url } shape and the legacy { label, url } shape still present
+// in rows that were backfilled before migration 005.
+function resolveLinkType(l: ProjectLink | { label?: string; url: string }): ProjectLinkType {
+  const t = (l as ProjectLink).type;
+  if (t && (Object.prototype.hasOwnProperty.call(LINK_TYPE_LABEL, t))) return t;
+  const legacy = (l as { label?: string }).label?.trim().toLowerCase();
+  if (legacy && (Object.prototype.hasOwnProperty.call(LINK_TYPE_LABEL, legacy))) {
+    return legacy as ProjectLinkType;
+  }
+  return "other";
+}
+
+function brandChipClass(type: ProjectLinkType): string {
+  switch (type) {
+    case "figma":
+      return "bg-[#ff6b2b]/10 text-[#b44800]";
+    case "figjam":
+      return "bg-[#ffd64a]/20 text-[#8a6d00]";
+    case "workfront":
+      return "bg-[#00b2e3]/10 text-[#00657f]";
+    case "jira":
+      return "bg-[#2684ff]/10 text-[#0747a6]";
+    case "web":
+    case "other":
+    default:
+      return "bg-ink-100 text-ink-700";
+  }
 }
 
 // ---------- Date helpers ----------
