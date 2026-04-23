@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, Plus, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Avatar,
@@ -13,6 +13,7 @@ import {
   ToolLinks,
   formatDate,
 } from "../components/ui";
+import { useToast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
@@ -48,8 +49,35 @@ const STATUS_RANK: Record<ProjectStatus, number> = PROJECT_STATUS_ORDER.reduce(
   {} as Record<ProjectStatus, number>,
 );
 
+// Filters persist in sessionStorage so navigating away and back (e.g. clicking
+// into a project detail and hitting the nav link) restores the view you had.
+// URL params still take precedence — a deep link like /projects?status=backlog
+// from the dashboard funnel is always respected.
+const FILTERS_KEY = "ui:projects:filters";
+interface StoredProjectFilters {
+  status?: StatusFilter;
+  category?: ProjectCategory | "all";
+  sort?: { col: SortColumn; dir: SortDir } | null;
+}
+const readStoredFilters = (): StoredProjectFilters => {
+  try {
+    const raw = sessionStorage.getItem(FILTERS_KEY);
+    return raw ? (JSON.parse(raw) as StoredProjectFilters) : {};
+  } catch {
+    return {};
+  }
+};
+const writeStoredFilters = (f: StoredProjectFilters) => {
+  try {
+    sessionStorage.setItem(FILTERS_KEY, JSON.stringify(f));
+  } catch {
+    // ignore quota / disabled storage
+  }
+};
+
 export default function Projects() {
   const { isManager } = useAuth();
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
   const [assignees, setAssignees] = useState<ProjectAssignee[]>([]);
@@ -57,24 +85,41 @@ export default function Projects() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // Filters are initialized from URL params so deep-links like
-  // /projects?status=backlog from the dashboard funnel work out of the box.
+  // URL is the single source of truth for statusFilter and categoryFilter —
+  // they're derived from `params` on every render instead of living in their
+  // own useState. An earlier attempt kept them in state and used two effects
+  // to sync URL ↔ state, which created an infinite ping-pong when the user
+  // came back to /projects via a bare nav link while sessionStorage had a
+  // non-default value: effect A pushed storage → URL, effect B pushed empty
+  // URL → "active" state, round and round until React's max-update-depth
+  // tripped and the page blanked out.
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
+  const statusFilter: StatusFilter = (() => {
     const s = params.get("status");
-    // Default to "active" (Backlog and Done hidden) when no param is set.
     return s && VALID_STATUS.has(s) ? (s as StatusFilter) : "active";
-  });
-  const [categoryFilter, setCategoryFilter] = useState<ProjectCategory | "all">(
-    () => {
-      const c = params.get("category");
-      return c && VALID_CATEGORY.has(c) ? (c as ProjectCategory) : "all";
-    },
-  );
+  })();
+  const categoryFilter: ProjectCategory | "all" = (() => {
+    const c = params.get("category");
+    return c && VALID_CATEGORY.has(c) ? (c as ProjectCategory) : "all";
+  })();
+  const setStatusFilter = (s: StatusFilter) => {
+    const next = new URLSearchParams(params);
+    if (s === "active") next.delete("status");
+    else next.set("status", s);
+    setParams(next, { replace: true });
+  };
+  const setCategoryFilter = (c: ProjectCategory | "all") => {
+    const next = new URLSearchParams(params);
+    if (c === "all") next.delete("category");
+    else next.set("category", c);
+    setParams(next, { replace: true });
+  };
+
   const [creating, setCreating] = useState(false);
   // null = no explicit sort; fall back to the query's updated_at desc order.
+  // Sort only lives in component state (not URL) — noisy to URL-encode.
   const [sort, setSort] = useState<{ col: SortColumn; dir: SortDir } | null>(
-    null,
+    () => readStoredFilters().sort ?? null,
   );
 
   // Three-click cycle on a header: asc → desc → off. Clicking a different
@@ -87,33 +132,46 @@ export default function Projects() {
     });
   };
 
-  // Keep the URL in sync when the user changes filters from the page itself.
-  // "active" is the default so we omit it from the URL — /projects stays
-  // clean. Explicit choices (all statuses, a specific status) get persisted.
+  // On mount, if the URL has no filter params but sessionStorage has some,
+  // push the stored values into the URL. Ref-guarded so this runs exactly
+  // once even in StrictMode's double-invoke dev mode.
+  const restoredRef = useRef(false);
   useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    const stored = readStoredFilters();
     const next = new URLSearchParams(params);
-    statusFilter === "active"
-      ? next.delete("status")
-      : next.set("status", statusFilter);
-    categoryFilter === "all"
-      ? next.delete("category")
-      : next.set("category", categoryFilter);
-    setParams(next, { replace: true });
+    let changed = false;
+    if (
+      !params.has("status") &&
+      stored.status &&
+      stored.status !== "active" &&
+      VALID_STATUS.has(stored.status)
+    ) {
+      next.set("status", stored.status);
+      changed = true;
+    }
+    if (
+      !params.has("category") &&
+      stored.category &&
+      stored.category !== "all" &&
+      VALID_CATEGORY.has(stored.category)
+    ) {
+      next.set("category", stored.category);
+      changed = true;
+    }
+    if (changed) setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, categoryFilter]);
+  }, []);
 
-  // If the user navigates (browser back/forward, or a new dashboard link),
-  // re-read the URL into state so the dropdowns reflect reality.
+  // Persist current filters (plus sort) so next mount can restore them.
   useEffect(() => {
-    const s = params.get("status");
-    setStatusFilter(
-      s && VALID_STATUS.has(s) ? (s as StatusFilter) : "active",
-    );
-    const c = params.get("category");
-    setCategoryFilter(
-      c && VALID_CATEGORY.has(c) ? (c as ProjectCategory) : "all",
-    );
-  }, [params]);
+    writeStoredFilters({
+      status: statusFilter,
+      category: categoryFilter,
+      sort,
+    });
+  }, [statusFilter, categoryFilter, sort]);
 
   const refresh = async () => {
     const [pRes, aRes, profRes] = await Promise.all([
@@ -420,9 +478,20 @@ export default function Projects() {
         <NewProjectModal
           profiles={profiles}
           onClose={() => setCreating(false)}
-          onCreated={() => {
+          onCreated={(created) => {
             setCreating(false);
+            // If the current filter would hide the fresh project (e.g. default
+            // "Active projects" view hides Backlog), bump the filter to "all"
+            // so the user actually sees what they just made.
+            const hidden =
+              (statusFilter === "active" &&
+                (created.status === "backlog" || created.status === "done")) ||
+              (statusFilter !== "active" &&
+                statusFilter !== "all" &&
+                statusFilter !== created.status);
+            if (hidden) setStatusFilter("all");
             refresh();
+            toast(`Project "${created.name}" created`);
           }}
         />
       )}
@@ -440,7 +509,7 @@ function NewProjectModal({
 }: {
   profiles: Profile[];
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (project: Project) => void;
 }) {
   const { profile } = useAuth();
   const [name, setName] = useState("");
@@ -501,11 +570,17 @@ function NewProjectModal({
         return;
       }
     }
-    onCreated();
+    onCreated(data);
   };
 
   return (
-    <Modal open title="New project" onClose={onClose} wide>
+    <Modal
+      open
+      title="New project"
+      onClose={onClose}
+      wide
+      dismissOnBackdropClick={false}
+    >
       <div className="space-y-3">
         <Field label="Name">
           <input

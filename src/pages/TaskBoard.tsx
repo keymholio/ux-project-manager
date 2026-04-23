@@ -12,6 +12,7 @@ import {
   ToolLinks,
   formatDate,
 } from "../components/ui";
+import { useToast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
@@ -27,8 +28,32 @@ import {
   type TaskType,
 } from "../lib/types";
 
+// Same sessionStorage pattern as Projects.tsx — remember the last view so
+// sidebar-nav round-trips preserve the user's filters.
+const FILTERS_KEY = "ui:tasks:filters";
+interface StoredTaskFilters {
+  assignee?: string;
+  project?: string;
+}
+const readStoredTaskFilters = (): StoredTaskFilters => {
+  try {
+    const raw = sessionStorage.getItem(FILTERS_KEY);
+    return raw ? (JSON.parse(raw) as StoredTaskFilters) : {};
+  } catch {
+    return {};
+  }
+};
+const writeStoredTaskFilters = (f: StoredTaskFilters) => {
+  try {
+    sessionStorage.setItem(FILTERS_KEY, JSON.stringify(f));
+  } catch {
+    // ignore
+  }
+};
+
 export default function TaskBoard() {
   const { profile, isManager } = useAuth();
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
 
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -37,13 +62,19 @@ export default function TaskBoard() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
-  // Filters — defaults are sensible for each role.
-  const [assigneeFilter, setAssigneeFilter] = useState<string>(
-    () => params.get("assignee") ?? (isManager ? "all" : profile?.id ?? "all"),
-  );
-  const [projectFilter, setProjectFilter] = useState<string>(
-    () => params.get("project") ?? "all",
-  );
+  // Filters — URL param > sessionStorage > role-aware default.
+  const [assigneeFilter, setAssigneeFilter] = useState<string>(() => {
+    const p = params.get("assignee");
+    if (p) return p;
+    const stored = readStoredTaskFilters().assignee;
+    if (stored) return stored;
+    return isManager ? "all" : profile?.id ?? "all";
+  });
+  const [projectFilter, setProjectFilter] = useState<string>(() => {
+    const p = params.get("project");
+    if (p) return p;
+    return readStoredTaskFilters().project ?? "all";
+  });
   const [query, setQuery] = useState("");
 
   const refresh = async () => {
@@ -75,6 +106,14 @@ export default function TaskBoard() {
     projectFilter === "all" ? next.delete("project") : next.set("project", projectFilter);
     setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assigneeFilter, projectFilter]);
+
+  // Persist filters so they survive navigation (not just back/forward).
+  useEffect(() => {
+    writeStoredTaskFilters({
+      assignee: assigneeFilter,
+      project: projectFilter,
+    });
   }, [assigneeFilter, projectFilter]);
 
   const filtered = useMemo(() => {
@@ -221,9 +260,10 @@ export default function TaskBoard() {
           profiles={profiles}
           defaultProjectId={projectFilter !== "all" && projectFilter !== "none" ? projectFilter : null}
           onClose={() => setCreating(false)}
-          onCreated={() => {
+          onCreated={(created) => {
             setCreating(false);
             refresh();
+            toast(`Task "${created.title}" created`);
           }}
         />
       )}
@@ -387,7 +427,7 @@ function NewTaskModal({
   profiles: Profile[];
   defaultProjectId: string | null;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (task: Task) => void;
 }) {
   const { profile, isManager } = useAuth();
   const [title, setTitle] = useState("");
@@ -409,24 +449,28 @@ function NewTaskModal({
     if (!title.trim() || !profile) return;
     setBusy(true);
     setErr(null);
-    const { error } = await supabase.from("tasks").insert({
-      title: title.trim(),
-      description: description.trim() || null,
-      task_type: taskType,
-      status,
-      priority,
-      due_date: dueDate || null,
-      project_id: projectId || null,
-      assignee_id: assigneeId || null,
-      figma_url: figmaUrl.trim() || null,
-      created_by: profile.id,
-    });
-    if (error) {
-      setErr(error.message);
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert({
+        title: title.trim(),
+        description: description.trim() || null,
+        task_type: taskType,
+        status,
+        priority,
+        due_date: dueDate || null,
+        project_id: projectId || null,
+        assignee_id: assigneeId || null,
+        figma_url: figmaUrl.trim() || null,
+        created_by: profile.id,
+      })
+      .select()
+      .single();
+    if (error || !data) {
+      setErr(error?.message ?? "Failed to create task");
       setBusy(false);
       return;
     }
-    onCreated();
+    onCreated(data);
   };
 
   // Anyone on the team can be assigned — managers often self-assign work too.

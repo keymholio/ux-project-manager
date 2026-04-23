@@ -185,18 +185,22 @@ export function Modal({
   title,
   children,
   wide,
+  dismissOnBackdropClick = true,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   wide?: boolean;
+  // When false, clicking the dimmed backdrop won't close the modal.
+  // Useful for create/edit forms so an accidental click doesn't wipe progress.
+  dismissOnBackdropClick?: boolean;
 }) {
   if (!open) return null;
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-ink-900/40 p-4 pt-16"
-      onClick={onClose}
+      onClick={dismissOnBackdropClick ? onClose : undefined}
     >
       <div
         className={`w-full ${wide ? "max-w-2xl" : "max-w-lg"} rounded-xl bg-white shadow-xl`}
