@@ -22,11 +22,13 @@ import {
   PROJECT_STATUS_LABEL,
   PROJECT_STATUS_ORDER,
   fmtProjectId,
+  type Label,
   type Priority,
   type Profile,
   type Project,
   type ProjectAssignee,
   type ProjectCategory,
+  type ProjectLabel,
   type ProjectLink,
   type ProjectStatus,
 } from "../lib/types";
@@ -76,6 +78,11 @@ interface StoredProjectFilters {
   category?: ProjectCategory | "all";
   // "all" | "unassigned" | "<user-id>" — matches the values in the select.
   designer?: string;
+  // "all" | "<label-id>" — matches one specific label. Kept as a single
+  // value rather than a multi-select: 99% of the time the team is
+  // filtering on a single initiative (e.g. "nuvance") and a dropdown is
+  // simpler than a multi-chip control.
+  label?: string;
   groupBy?: GroupBy;
   sort?: { col: SortColumn; dir: SortDir } | null;
 }
@@ -101,6 +108,8 @@ export default function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [assignees, setAssignees] = useState<ProjectAssignee[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [labels, setLabels] = useState<Label[]>([]);
+  const [projectLabels, setProjectLabels] = useState<ProjectLabel[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -125,6 +134,7 @@ export default function Projects() {
   // id against the profile list on read — if a stale id slips in, the filter
   // will simply match nothing, which is the right degenerate behaviour.
   const designerFilter: string = params.get("designer") ?? "all";
+  const labelFilter: string = params.get("label") ?? "all";
   // Default to grouping by designer — that's the lens the team reaches for
   // most often ("what's on Alice's plate?"). An explicit ?group=none in the
   // URL or a stored preference still wins.
@@ -148,6 +158,12 @@ export default function Projects() {
     const next = new URLSearchParams(params);
     if (d === "all") next.delete("designer");
     else next.set("designer", d);
+    setParams(next, { replace: true });
+  };
+  const setLabelFilter = (l: string) => {
+    const next = new URLSearchParams(params);
+    if (l === "all") next.delete("label");
+    else next.set("label", l);
     setParams(next, { replace: true });
   };
   const setGroupBy = (g: GroupBy) => {
@@ -212,6 +228,14 @@ export default function Projects() {
       changed = true;
     }
     if (
+      !params.has("label") &&
+      stored.label &&
+      stored.label !== "all"
+    ) {
+      next.set("label", stored.label);
+      changed = true;
+    }
+    if (
       !params.has("group") &&
       stored.groupBy &&
       stored.groupBy !== "designer" &&
@@ -230,22 +254,33 @@ export default function Projects() {
       status: statusFilter,
       category: categoryFilter,
       designer: designerFilter,
+      label: labelFilter,
       groupBy,
       sort,
     });
-  }, [statusFilter, categoryFilter, designerFilter, groupBy, sort]);
+  }, [statusFilter, categoryFilter, designerFilter, labelFilter, groupBy, sort]);
 
   const refresh = async () => {
-    const [pRes, aRes, profRes] = await Promise.all([
+    const [pRes, aRes, profRes, lRes, plRes] = await Promise.all([
       supabase.from("projects").select("*").order("updated_at", { ascending: false }),
       supabase.from("project_assignees").select("*"),
       supabase.from("profiles").select("*"),
+      supabase.from("labels").select("*").order("name"),
+      supabase.from("project_labels").select("*"),
     ]);
-    const error = pRes.error?.message ?? aRes.error?.message ?? profRes.error?.message ?? null;
+    const error =
+      pRes.error?.message ??
+      aRes.error?.message ??
+      profRes.error?.message ??
+      lRes.error?.message ??
+      plRes.error?.message ??
+      null;
     if (error) setErr(error);
     setProjects(pRes.data ?? []);
     setAssignees(aRes.data ?? []);
     setProfiles(profRes.data ?? []);
+    setLabels(lRes.data ?? []);
+    setProjectLabels(plRes.data ?? []);
     setLoading(false);
   };
 
@@ -255,6 +290,8 @@ export default function Projects() {
       .channel("projects-page")
       .on("postgres_changes", { event: "*", schema: "public", table: "projects" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "project_assignees" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "labels" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "project_labels" }, refresh)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -272,6 +309,24 @@ export default function Projects() {
     }
     return map;
   }, [assignees]);
+
+  // Project-id → Set of label ids. Mirrors assigneesByProject so the row
+  // renderer and the filter both do O(1) lookups instead of scanning the
+  // join array each time.
+  const labelsByProject = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const pl of projectLabels) {
+      const set = map.get(pl.project_id) ?? new Set<string>();
+      set.add(pl.label_id);
+      map.set(pl.project_id, set);
+    }
+    return map;
+  }, [projectLabels]);
+
+  const labelById = useMemo(
+    () => new Map(labels.map((l) => [l.id, l] as const)),
+    [labels],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -292,10 +347,23 @@ export default function Projects() {
           if (!team || !team.has(designerFilter)) return false;
         }
       }
+      if (labelFilter !== "all") {
+        const projectLabelSet = labelsByProject.get(p.id);
+        if (!projectLabelSet || !projectLabelSet.has(labelFilter)) return false;
+      }
       if (q && !p.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [projects, query, statusFilter, categoryFilter, designerFilter, assigneesByProject]);
+  }, [
+    projects,
+    query,
+    statusFilter,
+    categoryFilter,
+    designerFilter,
+    labelFilter,
+    assigneesByProject,
+    labelsByProject,
+  ]);
 
   // Reference count used for the header total. "Active" here means the
   // same thing as the Active status filter — anything that's not parked
@@ -513,6 +581,22 @@ export default function Projects() {
         {/* Designer filter mirrors the one on the Tasks board — lets managers
             slice the list to one person's workload. "Unassigned" surfaces
             projects that need a designer picked. */}
+        {/* Label filter. Only shown when the library has at least one
+            label — no point in showing a dropdown with nothing to pick. */}
+        {labels.length > 0 && (
+          <select
+            className="input w-auto"
+            value={labelFilter}
+            onChange={(e) => setLabelFilter(e.target.value)}
+          >
+            <option value="all">All labels</option>
+            {labels.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        )}
         <select
           className="input w-auto"
           value={designerFilter}
@@ -645,10 +729,39 @@ export default function Projects() {
                         <div className="w-14 flex-shrink-0 font-mono text-xs tabular-nums text-ink-500">
                           {fmtProjectId(p.short_id)}
                         </div>
-                        {/* Name + description — takes whatever space is left. */}
+                        {/* Name + description — takes whatever space is left.
+                            Label chips render to the right of the name on one
+                            line; flex-shrink-0 on the chip container keeps them
+                            from collapsing, and truncate on the name column
+                            handles the overflow. */}
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-ink-900">
-                            {p.name}
+                          <div className="flex items-center gap-2">
+                            <div className="truncate text-sm font-medium text-ink-900">
+                              {p.name}
+                            </div>
+                            {(() => {
+                              const ids = labelsByProject.get(p.id);
+                              if (!ids || ids.size === 0) return null;
+                              const chips: Label[] = [];
+                              for (const id of ids) {
+                                const l = labelById.get(id);
+                                if (l) chips.push(l);
+                              }
+                              if (chips.length === 0) return null;
+                              return (
+                                <div className="flex flex-shrink-0 items-center gap-1">
+                                  {chips.map((l) => (
+                                    <span
+                                      key={l.id}
+                                      className="chip text-white"
+                                      style={{ background: l.color }}
+                                    >
+                                      {l.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </div>
                           {p.description && (
                             <div className="truncate text-xs text-ink-500">
@@ -715,6 +828,14 @@ export default function Projects() {
       {creating && (
         <NewProjectModal
           profiles={profiles}
+          labels={labels}
+          onLabelCreated={(l) =>
+            setLabels((prev) =>
+              prev.some((x) => x.id === l.id)
+                ? prev
+                : [...prev, l].sort((a, b) => a.name.localeCompare(b.name)),
+            )
+          }
           onClose={() => setCreating(false)}
           onCreated={(created) => {
             setCreating(false);
@@ -742,10 +863,14 @@ export default function Projects() {
 // -----------------------------------------------------------------------------
 function NewProjectModal({
   profiles,
+  labels,
+  onLabelCreated,
   onClose,
   onCreated,
 }: {
   profiles: Profile[];
+  labels: Label[];
+  onLabelCreated: (label: Label) => void;
   onClose: () => void;
   onCreated: (project: Project) => void;
 }) {
@@ -759,6 +884,8 @@ function NewProjectModal({
   // Links are freeform now. Empty rows get dropped before insert.
   const [links, setLinks] = useState<ProjectLink[]>([]);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
+  const [newLabelName, setNewLabelName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -766,6 +893,33 @@ function NewProjectModal({
   const team = [...profiles].sort((a, b) =>
     a.full_name.localeCompare(b.full_name),
   );
+
+  // Create + auto-apply a new label. Dedupes against existing names so a
+  // user hammering "create" with the same string doesn't hit the UNIQUE
+  // constraint on labels.name.
+  const handleCreateLabel = async () => {
+    const canonical = newLabelName.trim().toLowerCase();
+    if (!canonical) return;
+    const existing = labels.find((l) => l.name.toLowerCase() === canonical);
+    if (existing) {
+      if (!selectedLabels.includes(existing.id))
+        setSelectedLabels((prev) => [...prev, existing.id]);
+      setNewLabelName("");
+      return;
+    }
+    const { data, error } = await supabase
+      .from("labels")
+      .insert({ name: canonical })
+      .select()
+      .single();
+    if (error || !data) {
+      setErr(error?.message ?? "Failed to create label");
+      return;
+    }
+    onLabelCreated(data as Label);
+    setSelectedLabels((prev) => [...prev, data.id]);
+    setNewLabelName("");
+  };
 
   const submit = async () => {
     if (!name.trim() || !profile) return;
@@ -804,6 +958,21 @@ function NewProjectModal({
         );
       if (aErr) {
         setErr(aErr.message);
+        setBusy(false);
+        return;
+      }
+    }
+    if (selectedLabels.length > 0) {
+      const { error: lErr } = await supabase
+        .from("project_labels")
+        .insert(
+          selectedLabels.map((lid) => ({
+            project_id: data.id,
+            label_id: lid,
+          })),
+        );
+      if (lErr) {
+        setErr(lErr.message);
         setBusy(false);
         return;
       }
@@ -908,6 +1077,62 @@ function NewProjectModal({
                 </button>
               );
             })}
+          </div>
+        </Field>
+        <Field label="Labels">
+          {/* Toggle chips across the entire library. Colored-in when
+              applied, neutral when off. New labels can be created inline
+              without leaving the modal. */}
+          <div className="flex flex-wrap items-center gap-1">
+            {labels.map((l) => {
+              const selected = selectedLabels.includes(l.id);
+              return (
+                <button
+                  type="button"
+                  key={l.id}
+                  onClick={() =>
+                    setSelectedLabels((prev) =>
+                      selected ? prev.filter((x) => x !== l.id) : [...prev, l.id],
+                    )
+                  }
+                  className="chip"
+                  style={
+                    selected
+                      ? { background: l.color, color: "white" }
+                      : {
+                          background: "#f1f5f9",
+                          color: "#334155",
+                          border: `1px solid ${l.color}`,
+                        }
+                  }
+                >
+                  {l.name}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              className="input h-8 w-48 text-xs"
+              placeholder="New label…"
+              value={newLabelName}
+              onChange={(e) => setNewLabelName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleCreateLabel();
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => void handleCreateLabel()}
+              className="btn btn-secondary"
+              disabled={!newLabelName.trim()}
+            >
+              <Plus size={14} />
+              Add label
+            </button>
           </div>
         </Field>
         <Field label="Links">

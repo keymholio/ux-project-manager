@@ -1,4 +1,4 @@
-import { Check, ExternalLink, GripVertical, Plus, Trash2 } from "lucide-react";
+import { Check, ExternalLink, GripVertical, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
@@ -21,6 +21,7 @@ import {
   PROJECT_STATUS_ORDER,
   fmtProjectId,
   fmtTaskId,
+  type Label,
   type Priority,
   type Profile,
   type Project,
@@ -87,12 +88,19 @@ export default function ProjectDetail() {
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  // All labels in the system (for the picker) + which ones this project
+  // has. Labels live in a separate table (migration 009) so they load
+  // independently. Edits are staged into draftLabelIds and persisted on
+  // save via an add/remove diff, same pattern as assignees.
+  const [labels, setLabels] = useState<Label[]>([]);
+  const [labelIds, setLabelIds] = useState<string[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   // Working copy — what the UI is editing. Diverges from the server
   // snapshot as the user makes changes, then snaps back on save or discard.
   const [draft, setDraft] = useState<Project | null>(null);
   const [draftAssigneeIds, setDraftAssigneeIds] = useState<string[]>([]);
+  const [draftLabelIds, setDraftLabelIds] = useState<string[]>([]);
 
   // Save state for the sticky bar at the bottom of the page.
   const [saving, setSaving] = useState(false);
@@ -110,17 +118,21 @@ export default function ProjectDetail() {
 
   const load = async () => {
     if (!id) return;
-    const [pRes, aRes, profRes, tRes] = await Promise.all([
+    const [pRes, aRes, profRes, tRes, lRes, plRes] = await Promise.all([
       supabase.from("projects").select("*").eq("id", id).maybeSingle(),
       supabase.from("project_assignees").select("user_id").eq("project_id", id),
       supabase.from("profiles").select("*"),
       supabase.from("tasks").select("*").eq("project_id", id).order("status"),
+      supabase.from("labels").select("*").order("name"),
+      supabase.from("project_labels").select("label_id").eq("project_id", id),
     ]);
     if (pRes.error) setErr(pRes.error.message);
     setProject(pRes.data ?? null);
     setAssigneeIds((aRes.data ?? []).map((r) => r.user_id));
     setProfiles(profRes.data ?? []);
     setTasks(tRes.data ?? []);
+    setLabels(lRes.data ?? []);
+    setLabelIds((plRes.data ?? []).map((r) => r.label_id));
   };
 
   useEffect(() => {
@@ -131,6 +143,12 @@ export default function ProjectDetail() {
       .on("postgres_changes", { event: "*", schema: "public", table: "projects", filter: `id=eq.${id}` }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "project_assignees", filter: `project_id=eq.${id}` }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `project_id=eq.${id}` }, load)
+      // Two separate subscriptions for labels: the library of available
+      // labels (table-wide) and the join rows for THIS project. Someone
+      // creating a label elsewhere should make it appear in this picker
+      // without a refresh.
+      .on("postgres_changes", { event: "*", schema: "public", table: "labels" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "project_labels", filter: `project_id=eq.${id}` }, load)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -147,6 +165,7 @@ export default function ProjectDetail() {
     initedForIdRef.current = project.id;
     setDraft(project);
     setDraftAssigneeIds(assigneeIds);
+    setDraftLabelIds(labelIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
 
@@ -166,8 +185,15 @@ export default function ProjectDetail() {
     for (let i = 0; i < a.length; i++) {
       if (a[i] !== b[i]) return true;
     }
+    // Same order-independent comparison for labels.
+    if (draftLabelIds.length !== labelIds.length) return true;
+    const la = [...draftLabelIds].sort();
+    const lb = [...labelIds].sort();
+    for (let i = 0; i < la.length; i++) {
+      if (la[i] !== lb[i]) return true;
+    }
     return false;
-  }, [draft, project, draftAssigneeIds, assigneeIds]);
+  }, [draft, project, draftAssigneeIds, assigneeIds, draftLabelIds, labelIds]);
 
   // Warn on tab close / reload if there are unsaved edits. Doesn't catch
   // in-app navigation — that's a bigger lift (react-router v6 useBlocker).
@@ -198,6 +224,50 @@ export default function ProjectDetail() {
   const toggleAssignee = (userId: string) => {
     setDraftAssigneeIds((prev) =>
       prev.includes(userId) ? prev.filter((x) => x !== userId) : [...prev, userId],
+    );
+    setSavedAt(null);
+  };
+
+  const toggleLabel = (labelId: string) => {
+    setDraftLabelIds((prev) =>
+      prev.includes(labelId) ? prev.filter((x) => x !== labelId) : [...prev, labelId],
+    );
+    setSavedAt(null);
+  };
+
+  // Inline "create new label" — keeps the user on the project page instead
+  // of making them go to a separate admin page for something they'll reach
+  // for constantly. Dedupes case-insensitively on name (the DB has a UNIQUE
+  // constraint on name, so a race would only surface as a unique-violation,
+  // but we'd rather not throw for the common case of re-typing an existing
+  // label). Brand new labels are auto-applied to the project.
+  const createLabel = async (rawName: string) => {
+    const name = rawName.trim().toLowerCase();
+    if (!name) return;
+    const existing = labels.find((l) => l.name.toLowerCase() === name);
+    if (existing) {
+      // Already in the library — just apply it if it isn't already on.
+      if (!draftLabelIds.includes(existing.id)) toggleLabel(existing.id);
+      return;
+    }
+    const { data, error } = await supabase
+      .from("labels")
+      .insert({ name })
+      .select()
+      .single();
+    if (error || !data) {
+      setErr(error?.message ?? "Failed to create label");
+      return;
+    }
+    // Realtime will echo this into `labels`, but apply it locally too so
+    // the picker updates without waiting for the round-trip.
+    setLabels((prev) =>
+      prev.some((l) => l.id === data.id)
+        ? prev
+        : [...prev, data as Label].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+    setDraftLabelIds((prev) =>
+      prev.includes(data.id) ? prev : [...prev, data.id],
     );
     setSavedAt(null);
   };
@@ -292,10 +362,41 @@ export default function ProjectDetail() {
       }
     }
 
+    // Label set diff — same pattern as assignees. Inserts are batched;
+    // deletes go one-by-one because the join table's composite PK means
+    // we'd otherwise have to build an OR filter for a bulk delete.
+    const labelsToAdd = draftLabelIds.filter((x) => !labelIds.includes(x));
+    if (labelsToAdd.length > 0) {
+      const { error } = await supabase
+        .from("project_labels")
+        .insert(
+          labelsToAdd.map((lid) => ({ project_id: project.id, label_id: lid })),
+        );
+      if (error) {
+        setErr(error.message);
+        setSaving(false);
+        return;
+      }
+    }
+    const labelsToRemove = labelIds.filter((x) => !draftLabelIds.includes(x));
+    for (const lid of labelsToRemove) {
+      const { error } = await supabase
+        .from("project_labels")
+        .delete()
+        .eq("project_id", project.id)
+        .eq("label_id", lid);
+      if (error) {
+        setErr(error.message);
+        setSaving(false);
+        return;
+      }
+    }
+
     // Adopt the draft into the server snapshot immediately so isDirty
     // flips to false without waiting for the realtime echo to come back.
     setProject({ ...project, ...fieldDiff } as Project);
     setAssigneeIds(draftAssigneeIds);
+    setLabelIds(draftLabelIds);
     setSaving(false);
     setSavedAt(Date.now());
   };
@@ -305,6 +406,7 @@ export default function ProjectDetail() {
     if (!confirm("Discard unsaved changes?")) return;
     setDraft(project);
     setDraftAssigneeIds(assigneeIds);
+    setDraftLabelIds(labelIds);
     setErr(null);
     setSavedAt(null);
   };
@@ -444,6 +546,14 @@ export default function ProjectDetail() {
           placeholder="Add a brief description or notes."
         />
       </section>
+
+      {/* Labels */}
+      <LabelsEditor
+        labels={labels}
+        selectedIds={draftLabelIds}
+        onToggle={toggleLabel}
+        onCreate={createLabel}
+      />
 
       {/* Links */}
       <section className="card p-4">
@@ -731,5 +841,173 @@ function SaveBar({
         </span>
       ) : null}
     </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Labels editor — selected labels inline as chips (click × to remove), plus
+// an "add label" affordance that expands into a combobox-style picker over
+// the full library. Typing a name that doesn't match creates a new label on
+// the fly. Labels are global (not per-project) so the library grows as the
+// team invents new tags to track initiatives.
+// -----------------------------------------------------------------------------
+function LabelsEditor({
+  labels,
+  selectedIds,
+  onToggle,
+  onCreate,
+}: {
+  labels: Label[];
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+  onCreate: (name: string) => Promise<void> | void;
+}) {
+  const [picking, setPicking] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const selected = useMemo(
+    () =>
+      selectedIds
+        .map((id) => labels.find((l) => l.id === id))
+        .filter((x): x is Label => !!x),
+    [selectedIds, labels],
+  );
+
+  // Everything that's not already applied. We filter by the query in a
+  // case-insensitive substring match — good enough for a team with dozens
+  // of labels, not thousands.
+  const q = query.trim().toLowerCase();
+  const suggestions = useMemo(
+    () =>
+      labels
+        .filter((l) => !selectedIds.includes(l.id))
+        .filter((l) => !q || l.name.toLowerCase().includes(q))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [labels, selectedIds, q],
+  );
+
+  // Flag the "nothing matches — hit enter to create" case. Matches ignore
+  // case because label names are canonicalised lowercase at insert time.
+  const canCreate =
+    q.length > 0 && !labels.some((l) => l.name.toLowerCase() === q);
+
+  const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (canCreate) {
+        await onCreate(q);
+        setQuery("");
+      } else if (suggestions.length === 1) {
+        // Single match + enter = quick-apply, like tag autocomplete.
+        onToggle(suggestions[0].id);
+        setQuery("");
+      }
+    } else if (e.key === "Escape") {
+      setQuery("");
+      setPicking(false);
+    }
+  };
+
+  return (
+    <section className="card p-4">
+      <h2 className="mb-2 text-sm font-semibold text-ink-900">Labels</h2>
+      <div className="flex flex-wrap items-center gap-2">
+        {selected.length === 0 && !picking && (
+          <span className="text-xs text-ink-500">
+            No labels yet. Use labels to tag initiatives or cross-cutting
+            work that doesn't fit a single category.
+          </span>
+        )}
+        {selected.map((l) => (
+          <span
+            key={l.id}
+            className="chip flex items-center gap-1 text-white"
+            style={{ background: l.color }}
+          >
+            {l.name}
+            <button
+              type="button"
+              onClick={() => onToggle(l.id)}
+              className="rounded-full hover:bg-white/20"
+              aria-label={`Remove label ${l.name}`}
+            >
+              <X size={12} />
+            </button>
+          </span>
+        ))}
+        {!picking ? (
+          <button
+            type="button"
+            onClick={() => setPicking(true)}
+            className="chip bg-ink-100 text-ink-700 hover:bg-ink-200 inline-flex items-center gap-1"
+          >
+            <Plus size={12} />
+            Add label
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              className="input h-7 w-48 text-xs"
+              placeholder="Search or create…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onBlur={() => {
+                // Small delay so a click on a suggestion fires before the
+                // picker closes. Without this, the mousedown → blur → unmount
+                // sequence eats the click.
+                setTimeout(() => setPicking(false), 150);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setPicking(false);
+                setQuery("");
+              }}
+              className="text-xs text-ink-500 hover:text-ink-900"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+      {picking && (suggestions.length > 0 || canCreate) && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {suggestions.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              onMouseDown={(e) => {
+                // mousedown fires before input blur, so the toggle lands
+                // before the picker collapses.
+                e.preventDefault();
+                onToggle(l.id);
+                setQuery("");
+              }}
+              className="chip text-white"
+              style={{ background: l.color }}
+            >
+              {l.name}
+            </button>
+          ))}
+          {canCreate && (
+            <button
+              type="button"
+              onMouseDown={async (e) => {
+                e.preventDefault();
+                await onCreate(q);
+                setQuery("");
+              }}
+              className="chip bg-brand-600 text-white inline-flex items-center gap-1"
+            >
+              <Plus size={12} />
+              Create "{q}"
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
