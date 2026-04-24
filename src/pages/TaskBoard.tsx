@@ -132,13 +132,22 @@ export default function TaskBoard() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    // Age-out: once a task has been 'done' for more than 15 days it falls off
-    // the board. It's still in the database — just hidden here so the Done
-    // column stops growing forever. A null completed_at (optimistic drop not
-    // yet confirmed by realtime) is treated as "just finished" so cards don't
-    // flash out mid-drag.
-    const DONE_TTL_MS = 15 * 24 * 60 * 60 * 1000;
-    const now = Date.now();
+    // Done column only shows tasks completed during the current work week
+    // (Monday 00:00 → now, local time). Older completed tasks remain in the
+    // DB but are hidden from the board so the column doesn't grow forever.
+    // A null completed_at on a 'done' row (optimistic drop not yet confirmed
+    // by realtime) is treated as "just finished" so cards don't flash out
+    // mid-drag.
+    const startOfWeekMs = (() => {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      // getDay(): Sunday=0, Monday=1, ... Saturday=6. Back up to Monday —
+      // Sunday wraps to 6 days back so Sun work still lands in "this week"
+      // rather than snapping forward to the next Monday.
+      const dow = d.getDay();
+      d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+      return d.getTime();
+    })();
     return tasks.filter((t) => {
       if (assigneeFilter === "mine") {
         if (t.assignee_id !== profile?.id) return false;
@@ -154,33 +163,151 @@ export default function TaskBoard() {
       }
       if (q && !t.title.toLowerCase().includes(q)) return false;
       if (t.status === "done" && t.completed_at) {
-        if (now - new Date(t.completed_at).getTime() > DONE_TTL_MS) return false;
+        if (new Date(t.completed_at).getTime() < startOfWeekMs) return false;
       }
       return true;
     });
   }, [tasks, assigneeFilter, projectFilter, query, profile?.id]);
 
-  const onDrop = async (taskId: string, status: TaskStatus) => {
-    // Optimistically move the card so the UI feels responsive — the realtime
-    // subscription will confirm (or correct) shortly.
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, status } : t)),
-    );
-    const { error, data } = await supabase
-      .from("tasks")
-      .update({ status })
-      .eq("id", taskId)
-      .select();
-    if (error) {
-      // eslint-disable-next-line no-console
-      console.error("Failed to move task:", error.message);
-      refresh();
+  // Drag-and-drop handler. `beforeTaskId` is the card the dropped task
+  // should be inserted above — null means "append to the end of the
+  // column". Position is recalculated so a drag can both change status
+  // (cross-column move) and reorder within a column; the board sorts by
+  // position ascending, so a smaller number lands earlier in the column.
+  //
+  // We try a fast single-row UPDATE first (midpoint between neighbors).
+  // If that would collide with a neighbor — because neighbors share a
+  // position (pre-DnD seed data where every row sat at the integer
+  // default of 0) or because many insertions have exhausted floating
+  // point precision at the same slot — we fall back to renumbering the
+  // whole column with a wide stride so future drops land on the fast
+  // path again. Requires migration 011 (tasks.position → double
+  // precision); integer columns would truncate midpoints.
+  const onDrop = async (
+    taskId: string,
+    status: TaskStatus,
+    beforeTaskId: string | null,
+  ) => {
+    if (taskId === beforeTaskId) return; // dropped on self — no-op
+    // Target column without the dragged card, sorted ascending so
+    // neighbor lookups by index line up with visual order.
+    const colTasks = tasks
+      .filter((t) => t.status === status && t.id !== taskId)
+      .sort((a, b) => a.position - b.position);
+    // Where in the target column the dragged card should land. A missing
+    // beforeTaskId (or one that vanished mid-drag) falls back to
+    // appending at the end.
+    let insertionIdx: number;
+    if (beforeTaskId === null) {
+      insertionIdx = colTasks.length;
+    } else {
+      const found = colTasks.findIndex((t) => t.id === beforeTaskId);
+      insertionIdx = found === -1 ? colTasks.length : found;
+    }
+    const above = colTasks[insertionIdx - 1];
+    const below = colTasks[insertionIdx];
+
+    // Fast path: compute a position that slots strictly between neighbors.
+    // `null` here means "couldn't find a clean spot — need to renumber".
+    let fastPosition: number | null = null;
+    if (!above && !below) {
+      fastPosition = 0; // empty column
+    } else if (!above && below) {
+      fastPosition = below.position - 1; // insert at top
+    } else if (above && !below) {
+      fastPosition = above.position + 1; // append at bottom
+    } else if (above && below) {
+      const mid = (above.position + below.position) / 2;
+      // Strictly between — if the neighbors are tied (both 0, say) or
+      // precision has collapsed the midpoint onto one of them, skip the
+      // fast path and renumber.
+      if (mid > above.position && mid < below.position) {
+        fastPosition = mid;
+      }
+    }
+
+    if (fastPosition !== null) {
+      const newPosition = fastPosition;
+      setTasks((prev) =>
+        [...prev]
+          .map((t) =>
+            t.id === taskId ? { ...t, status, position: newPosition } : t,
+          )
+          .sort((a, b) => a.position - b.position),
+      );
+      const { error, data } = await supabase
+        .from("tasks")
+        .update({ status, position: newPosition })
+        .eq("id", taskId)
+        .select();
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.error("Failed to move task:", error.message);
+        refresh();
+        return;
+      }
+      // Empty data means RLS silently blocked the update (designer
+      // dragging someone else's task) — roll back the optimistic change.
+      if (!data || data.length === 0) refresh();
       return;
     }
-    // If RLS silently blocked the update (designer dragging someone else's
-    // task), the response will be an empty array — roll back the optimistic
-    // change.
-    if (!data || data.length === 0) {
+
+    // Slow path: renumber the column with a wide stride. This happens
+    // rarely — typically once per column the first time a user reorders
+    // into a group of tied seed-data positions. After renumbering, every
+    // card has a unique position with 1000-unit gaps between neighbors,
+    // so ~50 subsequent midpoint insertions fit before we'd need to
+    // renumber again.
+    //
+    // RLS note: designers can only update tasks they own, so if the
+    // column contains teammate cards tied at the same seed position, the
+    // renumber will succeed only for the designer's own rows. The
+    // dragged card's final resting spot can drift as a result — we'll
+    // refresh from the server and let realtime reconcile. In practice
+    // managers are the ones triggering this path, and for them all
+    // UPDATEs succeed.
+    const draggedTask = tasks.find((t) => t.id === taskId);
+    if (!draggedTask) return;
+    const ordered = [...colTasks];
+    ordered.splice(insertionIdx, 0, draggedTask);
+    const STEP = 1000;
+    const renumbered = ordered.map((t, i) => ({
+      id: t.id,
+      position: (i + 1) * STEP,
+    }));
+    const newPositionById = new Map(renumbered.map((r) => [r.id, r.position]));
+
+    setTasks((prev) =>
+      [...prev]
+        .map((t) => {
+          const p = newPositionById.get(t.id);
+          if (p === undefined) return t;
+          return {
+            ...t,
+            position: p,
+            status: t.id === taskId ? status : t.status,
+          };
+        })
+        .sort((a, b) => a.position - b.position),
+    );
+
+    const results = await Promise.all(
+      renumbered.map((r) => {
+        const payload: { position: number; status?: TaskStatus } = {
+          position: r.position,
+        };
+        if (r.id === taskId) payload.status = status;
+        return supabase.from("tasks").update(payload).eq("id", r.id).select();
+      }),
+    );
+    const anyBlocked = results.some(
+      (r) => r.error || !r.data || r.data.length === 0,
+    );
+    if (anyBlocked) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "Some rows could not be renumbered (likely RLS). Refreshing.",
+      );
       refresh();
     }
   };
@@ -323,7 +450,11 @@ function Column({
   tasks: Task[];
   profiles: Profile[];
   projects: Project[];
-  onDrop: (taskId: string, status: TaskStatus) => void;
+  onDrop: (
+    taskId: string,
+    status: TaskStatus,
+    beforeTaskId: string | null,
+  ) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
 
@@ -335,7 +466,10 @@ function Column({
     e.preventDefault();
     setDragOver(false);
     const id = e.dataTransfer.getData("text/taskId");
-    if (id) onDrop(id, status);
+    // Dropping on the column background (not on a card) appends to the
+    // end — cards handle their own drops and stop propagation, so this
+    // path only fires for empty space / below the last card.
+    if (id) onDrop(id, status, null);
   };
 
   return (
@@ -352,26 +486,34 @@ function Column({
           className="text-xs font-semibold uppercase tracking-wide text-ink-600"
           title={
             status === "done"
-              ? "Showing tasks completed in the last 15 days."
+              ? "Showing tasks completed this week (since Monday)."
               : undefined
           }
         >
           {TASK_STATUS_LABEL[status]}
           {status === "done" && (
             <span className="ml-1 font-normal normal-case tracking-normal text-ink-400">
-              · last 15 days
+              · this week
             </span>
           )}
         </div>
         <span className="text-xs font-medium text-ink-500">{tasks.length}</span>
       </div>
       <div className="flex flex-col gap-2 p-2 overflow-y-auto">
-        {tasks.map((t) => (
+        {tasks.map((t, i) => (
           <TaskCard
             key={t.id}
             task={t}
             profiles={profiles}
             projects={projects}
+            onCardDrop={(draggedId, placement) => {
+              // 'before' keeps this card as the anchor; 'after' anchors
+              // on the next sibling (or null for the last card, meaning
+              // "append to the end of the column").
+              const beforeTaskId =
+                placement === "before" ? t.id : (tasks[i + 1]?.id ?? null);
+              onDrop(draggedId, status, beforeTaskId);
+            }}
           />
         ))}
       </div>
@@ -386,15 +528,24 @@ function TaskCard({
   task,
   profiles,
   projects,
+  onCardDrop,
 }: {
   task: Task;
   profiles: Profile[];
   projects: Project[];
+  onCardDrop: (draggedId: string, placement: "before" | "after") => void;
 }) {
   const navigate = useNavigate();
   // We track whether a drag just occurred so the mouseup-triggered click
   // doesn't accidentally navigate to the task detail page after a drop.
   const draggingRef = useRef(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Visual-only state: shows a brand-colored line above or below the card
+  // while another card is being dragged over it. Placement is recomputed
+  // from clientY at drop time so we don't rely on this state being fresh.
+  const [dropIndicator, setDropIndicator] = useState<
+    "before" | "after" | null
+  >(null);
 
   const assignee = profiles.find((p) => p.id === task.assignee_id) ?? null;
   const project = projects.find((p) => p.id === task.project_id) ?? null;
@@ -403,67 +554,124 @@ function TaskCard({
     task.status !== "done" &&
     new Date(task.due_date) < new Date();
 
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    // Preventing default marks this as a valid drop target; stopping
+    // propagation keeps the column's "empty-space append" handler from
+    // firing in parallel — otherwise the drop would both insert here AND
+    // append at the end of the column.
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = cardRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const midpoint = rect.top + rect.height / 2;
+    const next: "before" | "after" = e.clientY < midpoint ? "before" : "after";
+    if (next !== dropIndicator) setDropIndicator(next);
+  };
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    // onDragLeave also fires when the cursor enters a descendant element
+    // (because the underlying dragleave targets the direct hit element
+    // and bubbles). Guard against that by checking whether the
+    // relatedTarget is still inside this card — if so, we're not really
+    // leaving, we're just over a child like the priority badge.
+    const related = e.relatedTarget as Node | null;
+    if (related && cardRef.current?.contains(related)) return;
+    setDropIndicator(null);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDropIndicator(null);
+    const draggedId = e.dataTransfer.getData("text/taskId");
+    if (!draggedId) return;
+    const rect = cardRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    // Re-derive placement from clientY rather than trusting the state —
+    // React may not have flushed the last onDragOver's setState by the
+    // time the drop lands, especially on a fast swipe.
+    const placement: "before" | "after" =
+      e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+    onCardDrop(draggedId, placement);
+  };
+
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      draggable
-      onDragStart={(e) => {
-        draggingRef.current = true;
-        e.dataTransfer.setData("text/taskId", task.id);
-        e.dataTransfer.effectAllowed = "move";
-      }}
-      onDragEnd={() => {
-        // Defer so the trailing click fires *after* we read this flag.
-        setTimeout(() => {
-          draggingRef.current = false;
-        }, 0);
-      }}
-      onClick={() => {
-        if (draggingRef.current) return;
-        navigate(`/tasks/${task.id}`);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
+    <div className="relative">
+      {/* Drop indicators live in the 8px gap between cards (gap-2 on the
+          column). `-top-1` / `-bottom-1` centers the 2px line in that gap.
+          pointer-events-none keeps them from stealing drop events from
+          the card beneath. */}
+      {dropIndicator === "before" && (
+        <div className="pointer-events-none absolute inset-x-0 -top-1 h-0.5 rounded bg-brand-500" />
+      )}
+      {dropIndicator === "after" && (
+        <div className="pointer-events-none absolute inset-x-0 -bottom-1 h-0.5 rounded bg-brand-500" />
+      )}
+      <div
+        ref={cardRef}
+        role="button"
+        tabIndex={0}
+        draggable
+        onDragStart={(e) => {
+          draggingRef.current = true;
+          e.dataTransfer.setData("text/taskId", task.id);
+          e.dataTransfer.effectAllowed = "move";
+        }}
+        onDragEnd={() => {
+          // Defer so the trailing click fires *after* we read this flag.
+          setTimeout(() => {
+            draggingRef.current = false;
+          }, 0);
+        }}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => {
+          if (draggingRef.current) return;
           navigate(`/tasks/${task.id}`);
-        }
-      }}
-      className="card p-3 hover:border-brand-500 cursor-grab active:cursor-grabbing block select-none"
-    >
-      {/* Top row: project name (left) + priority (right). Project name
-          takes the ID's old slot; the per-tool badges it used to carry
-          are gone in favor of a unified links row below. */}
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-xs text-ink-500">
-          {project ? project.name : "No project"}
-        </span>
-        <PriorityBadge priority={task.priority} />
-      </div>
-      <div className="mt-1.5 text-sm font-medium text-ink-900 line-clamp-3">
-        {task.title}
-      </div>
-      <div className="mt-2">
-        <LinkList links={task.links} max={3} />
-      </div>
-      {/* Bottom row: assignee avatar + first name on the left, task ID
-          on the right. Due date used to live here — it's still editable
-          in the detail view but we're keeping the card itself lean. */}
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <Avatar profile={assignee} size={22} />
-          {assignee && (
-            <span className="truncate text-xs text-ink-700">
-              {assignee.full_name.split(" ")[0]}
-            </span>
-          )}
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            navigate(`/tasks/${task.id}`);
+          }
+        }}
+        className="card p-3 hover:border-brand-500 cursor-grab active:cursor-grabbing block select-none"
+      >
+        {/* Top row: project name (left) + priority (right). Project name
+            takes the ID's old slot; the per-tool badges it used to carry
+            are gone in favor of a unified links row below. */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-xs text-ink-500">
+            {project ? project.name : "No project"}
+          </span>
+          <PriorityBadge priority={task.priority} />
         </div>
-        <span
-          className={`font-mono text-[10px] tabular-nums ${overdue ? "text-rose-700 font-medium" : "text-ink-400"}`}
-          title={overdue ? "Overdue" : undefined}
-        >
-          {fmtTaskId(task.short_id)}
-        </span>
+        <div className="mt-1.5 text-sm font-medium text-ink-900 line-clamp-3">
+          {task.title}
+        </div>
+        <div className="mt-2">
+          <LinkList links={task.links} max={3} />
+        </div>
+        {/* Bottom row: assignee avatar + first name on the left, task ID
+            on the right. Due date used to live here — it's still editable
+            in the detail view but we're keeping the card itself lean. */}
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Avatar profile={assignee} size={22} />
+            {assignee && (
+              <span className="truncate text-xs text-ink-700">
+                {assignee.full_name.split(" ")[0]}
+              </span>
+            )}
+          </div>
+          <span
+            className={`font-mono text-[10px] tabular-nums ${overdue ? "text-rose-700 font-medium" : "text-ink-400"}`}
+            title={overdue ? "Overdue" : undefined}
+          >
+            {fmtTaskId(task.short_id)}
+          </span>
+        </div>
       </div>
     </div>
   );
