@@ -5,12 +5,10 @@ import {
   Avatar,
   Button,
   EmptyState,
+  LinkList,
   Modal,
   PriorityBadge,
   Spinner,
-  TaskTypeBadge,
-  ToolLinks,
-  formatDate,
 } from "../components/ui";
 import { ProjectCombobox } from "../components/ProjectCombobox";
 import { useToast } from "../components/Toast";
@@ -20,15 +18,12 @@ import {
   PRIORITY_LABEL,
   TASK_STATUS_LABEL,
   TASK_STATUS_ORDER,
-  TASK_TYPE_LABEL,
-  fmtProjectId,
   fmtTaskId,
   type Priority,
   type Profile,
   type Project,
   type Task,
   type TaskStatus,
-  type TaskType,
 } from "../lib/types";
 
 // Same sessionStorage pattern as Projects.tsx — remember the last view so
@@ -86,7 +81,11 @@ export default function TaskBoard() {
       supabase.from("projects").select("*").order("name"),
       supabase.from("profiles").select("*"),
     ]);
-    setTasks(tRes.data ?? []);
+    // Defensive: if migration 007 hasn't been applied yet, `links` is
+    // missing from the row. Default to [] so card rendering stays safe.
+    setTasks(
+      (tRes.data ?? []).map((t) => ({ ...t, links: t.links ?? [] }) as Task),
+    );
     setProjects(pRes.data ?? []);
     setProfiles(profRes.data ?? []);
     setLoading(false);
@@ -403,41 +402,39 @@ function TaskCard({
       }}
       className="card p-3 hover:border-brand-500 cursor-grab active:cursor-grabbing block select-none"
     >
+      {/* Top row: project name (left) + priority (right). Project name
+          takes the ID's old slot; the per-tool badges it used to carry
+          are gone in favor of a unified links row below. */}
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[10px] tabular-nums text-ink-400">
-          {fmtTaskId(task.short_id)}
+        <span className="truncate text-xs text-ink-500">
+          {project ? project.name : "No project"}
         </span>
-        <div className="flex items-center gap-1">
-          <TaskTypeBadge type={task.task_type} />
-          <PriorityBadge priority={task.priority} />
-        </div>
+        <PriorityBadge priority={task.priority} />
       </div>
       <div className="mt-1.5 text-sm font-medium text-ink-900 line-clamp-3">
         {task.title}
       </div>
-      {project && (
-        <div className="mt-1 flex items-center gap-1.5 truncate text-xs text-ink-500">
-          <span className="font-mono tabular-nums text-ink-400">
-            {fmtProjectId(project.short_id)}
-          </span>
-          <span className="truncate">{project.name}</span>
-        </div>
-      )}
       <div className="mt-2">
-        <ToolLinks
-          figma={task.figma_url}
-          workfront={task.workfront_url}
-          jira={task.jira_url}
-          figjam={task.figjam_url}
-        />
+        <LinkList links={task.links} max={3} />
       </div>
-      <div className="mt-2 flex items-center justify-between">
-        <Avatar profile={assignee} size={22} />
-        <div
-          className={`text-xs tabular-nums ${overdue ? "text-rose-700 font-medium" : "text-ink-500"}`}
-        >
-          {formatDate(task.due_date)}
+      {/* Bottom row: assignee avatar + first name on the left, task ID
+          on the right. Due date used to live here — it's still editable
+          in the detail view but we're keeping the card itself lean. */}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Avatar profile={assignee} size={22} />
+          {assignee && (
+            <span className="truncate text-xs text-ink-700">
+              {assignee.full_name.split(" ")[0]}
+            </span>
+          )}
         </div>
+        <span
+          className={`font-mono text-[10px] tabular-nums ${overdue ? "text-rose-700 font-medium" : "text-ink-400"}`}
+          title={overdue ? "Overdue" : undefined}
+        >
+          {fmtTaskId(task.short_id)}
+        </span>
       </div>
     </div>
   );
@@ -462,7 +459,6 @@ function NewTaskModal({
   const { profile, isManager } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [taskType, setTaskType] = useState<TaskType>("design");
   const [status, setStatus] = useState<TaskStatus>("backlog");
   const [priority, setPriority] = useState<Priority>("medium");
   const [dueDate, setDueDate] = useState("");
@@ -471,7 +467,6 @@ function NewTaskModal({
   const [assigneeId, setAssigneeId] = useState<string>(
     isManager ? "" : profile?.id ?? "",
   );
-  const [figmaUrl, setFigmaUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -498,13 +493,11 @@ function NewTaskModal({
       .insert({
         title: title.trim(),
         description: description.trim() || null,
-        task_type: taskType,
         status,
         priority,
         due_date: dueDate || null,
         project_id: projectId || null,
         assignee_id: assigneeId || null,
-        figma_url: figmaUrl.trim() || null,
         created_by: profile.id,
         position: nextPosition,
       })
@@ -543,19 +536,6 @@ function NewTaskModal({
           />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Type">
-            <select
-              className="input"
-              value={taskType}
-              onChange={(e) => setTaskType(e.target.value as TaskType)}
-            >
-              {(Object.keys(TASK_TYPE_LABEL) as TaskType[]).map((t) => (
-                <option key={t} value={t}>
-                  {TASK_TYPE_LABEL[t]}
-                </option>
-              ))}
-            </select>
-          </Field>
           <Field label="Status">
             <select
               className="input"
@@ -626,14 +606,6 @@ function NewTaskModal({
             )}
           </Field>
         </div>
-        <Field label="Figma URL">
-          <input
-            className="input"
-            value={figmaUrl}
-            onChange={(e) => setFigmaUrl(e.target.value)}
-            placeholder="https://figma.com/…"
-          />
-        </Field>
         {err && (
           <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
             {err}

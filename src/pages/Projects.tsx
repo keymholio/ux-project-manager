@@ -8,10 +8,8 @@ import {
   EmptyState,
   LinkList,
   Modal,
-  PriorityBadge,
   ProjectStatusBadge,
   Spinner,
-  formatDate,
 } from "../components/ui";
 import { useToast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
@@ -24,13 +22,13 @@ import {
   PROJECT_STATUS_LABEL,
   PROJECT_STATUS_ORDER,
   fmtProjectId,
+  type Priority,
   type Profile,
   type Project,
   type ProjectAssignee,
   type ProjectCategory,
   type ProjectLink,
   type ProjectStatus,
-  type Priority,
 } from "../lib/types";
 
 // Set of all valid project statuses, used to validate URL params. Includes
@@ -42,12 +40,13 @@ const VALID_CATEGORY = new Set<string>(Object.keys(CATEGORY_LABEL));
 // Status filter has two synthetic options on top of the real statuses.
 type StatusFilter = ProjectStatus | "active" | "all";
 
-// Sort config. Assigned-to and Tools are intentionally not sortable — an
-// avatar stack or a set of tool chips has no natural ordering users would
-// expect.
-type SortColumn = "name" | "category" | "priority" | "status" | "due_date";
+// Sort config. Assigned-to and Links are intentionally not sortable — an
+// avatar stack or a set of link chips has no natural ordering users would
+// expect. ID sorts numerically by short_id, which matches how the IDs were
+// handed out (oldest → newest), useful when you want to see the backlog in
+// the order it was created.
+type SortColumn = "id" | "name" | "category" | "status";
 type SortDir = "asc" | "desc";
-const PRIORITY_RANK: Record<Priority, number> = { low: 1, medium: 2, high: 3 };
 const STATUS_RANK: Record<ProjectStatus, number> = PROJECT_STATUS_ORDER.reduce(
   (acc, s, i) => ({ ...acc, [s]: i }),
   {} as Record<ProjectStatus, number>,
@@ -61,6 +60,8 @@ const FILTERS_KEY = "ui:projects:filters";
 interface StoredProjectFilters {
   status?: StatusFilter;
   category?: ProjectCategory | "all";
+  // "all" | "unassigned" | "<user-id>" — matches the values in the select.
+  designer?: string;
   sort?: { col: SortColumn; dir: SortDir } | null;
 }
 const readStoredFilters = (): StoredProjectFilters => {
@@ -106,6 +107,10 @@ export default function Projects() {
     const c = params.get("category");
     return c && VALID_CATEGORY.has(c) ? (c as ProjectCategory) : "all";
   })();
+  // Designer filter: "all" | "unassigned" | "<user-id>". We don't validate the
+  // id against the profile list on read — if a stale id slips in, the filter
+  // will simply match nothing, which is the right degenerate behaviour.
+  const designerFilter: string = params.get("designer") ?? "all";
   const setStatusFilter = (s: StatusFilter) => {
     const next = new URLSearchParams(params);
     if (s === "active") next.delete("status");
@@ -116,6 +121,12 @@ export default function Projects() {
     const next = new URLSearchParams(params);
     if (c === "all") next.delete("category");
     else next.set("category", c);
+    setParams(next, { replace: true });
+  };
+  const setDesignerFilter = (d: string) => {
+    const next = new URLSearchParams(params);
+    if (d === "all") next.delete("designer");
+    else next.set("designer", d);
     setParams(next, { replace: true });
   };
 
@@ -164,6 +175,14 @@ export default function Projects() {
       next.set("category", stored.category);
       changed = true;
     }
+    if (
+      !params.has("designer") &&
+      stored.designer &&
+      stored.designer !== "all"
+    ) {
+      next.set("designer", stored.designer);
+      changed = true;
+    }
     if (changed) setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -173,9 +192,10 @@ export default function Projects() {
     writeStoredFilters({
       status: statusFilter,
       category: categoryFilter,
+      designer: designerFilter,
       sort,
     });
-  }, [statusFilter, categoryFilter, sort]);
+  }, [statusFilter, categoryFilter, designerFilter, sort]);
 
   const refresh = async () => {
     const [pRes, aRes, profRes] = await Promise.all([
@@ -203,6 +223,18 @@ export default function Projects() {
     };
   }, []);
 
+  // Project-id → Set of assigned user ids. Built once per assignees change so
+  // the filter doesn't scan the full project_assignees array per row.
+  const assigneesByProject = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const a of assignees) {
+      const set = map.get(a.project_id) ?? new Set<string>();
+      set.add(a.user_id);
+      map.set(a.project_id, set);
+    }
+    return map;
+  }, [assignees]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return projects.filter((p) => {
@@ -214,10 +246,18 @@ export default function Projects() {
         return false;
       }
       if (categoryFilter !== "all" && p.category !== categoryFilter) return false;
+      if (designerFilter !== "all") {
+        const team = assigneesByProject.get(p.id);
+        if (designerFilter === "unassigned") {
+          if (team && team.size > 0) return false;
+        } else {
+          if (!team || !team.has(designerFilter)) return false;
+        }
+      }
       if (q && !p.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [projects, query, statusFilter, categoryFilter]);
+  }, [projects, query, statusFilter, categoryFilter, designerFilter, assigneesByProject]);
 
   // Reference count used for the header total. "Active" here means the
   // same thing as the Active status filter — anything that's not parked
@@ -238,6 +278,8 @@ export default function Projects() {
     const mul = sort.dir === "asc" ? 1 : -1;
     list.sort((a, b) => {
       switch (sort.col) {
+        case "id":
+          return (a.short_id - b.short_id) * mul;
         case "name":
           return a.name.localeCompare(b.name) * mul;
         case "category":
@@ -245,22 +287,8 @@ export default function Projects() {
             CATEGORY_LABEL[a.category].localeCompare(CATEGORY_LABEL[b.category]) *
             mul
           );
-        case "priority":
-          return (PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]) * mul;
         case "status":
           return (STATUS_RANK[a.status] - STATUS_RANK[b.status]) * mul;
-        case "due_date": {
-          // Projects with no due date always sort to the end, regardless of
-          // direction — otherwise an asc sort would bury all the dated rows
-          // below a pile of empties.
-          if (!a.due_date && !b.due_date) return 0;
-          if (!a.due_date) return 1;
-          if (!b.due_date) return -1;
-          return (
-            (new Date(a.due_date).getTime() - new Date(b.due_date).getTime()) *
-            mul
-          );
-        }
       }
     });
     return list;
@@ -336,6 +364,24 @@ export default function Projects() {
             </option>
           ))}
         </select>
+        {/* Designer filter mirrors the one on the Tasks board — lets managers
+            slice the list to one person's workload. "Unassigned" surfaces
+            projects that need a designer picked. */}
+        <select
+          className="input w-auto"
+          value={designerFilter}
+          onChange={(e) => setDesignerFilter(e.target.value)}
+        >
+          <option value="all">All designers</option>
+          <option value="unassigned">Unassigned</option>
+          {[...profiles]
+            .sort((a, b) => a.full_name.localeCompare(b.full_name))
+            .map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.full_name}
+              </option>
+            ))}
+        </select>
         {/* Live total. The reference number ("Y") depends on the status
             filter: on "All statuses" we show the grand total, otherwise we
             anchor on active projects (everything except Backlog and Done)
@@ -363,10 +409,19 @@ export default function Projects() {
       ) : (
         <div className="card overflow-hidden">
           {/* Header row. Widths here must match the data rows below so the
-              columns line up. Order: Project → Category → Status → Assigned
-              to → Tools → Due → Priority (rightmost). */}
+              columns line up. Order: ID → Project → Category → Status →
+              Assigned to → Links. Due and Priority used to live here — they're
+              still editable on the detail page, but they were noise on the
+              list where status and assignment do most of the scan-work. */}
           <div className="flex items-center gap-3 border-b border-ink-200 bg-ink-50/60 px-4 py-2 text-xs font-medium uppercase tracking-wide text-ink-500">
-            <div className="w-14 flex-shrink-0">ID</div>
+            <div className="w-14 flex-shrink-0">
+              <SortableHeader
+                label="ID"
+                col="id"
+                sort={sort}
+                onToggle={toggleSort}
+              />
+            </div>
             <div className="min-w-0 flex-1">
               <SortableHeader
                 label="Project"
@@ -394,24 +449,6 @@ export default function Projects() {
               </div>
               <div className="w-40">Assigned to</div>
               <div className="w-40">Links</div>
-              <div className="w-20 text-right">
-                <SortableHeader
-                  label="Due"
-                  col="due_date"
-                  sort={sort}
-                  onToggle={toggleSort}
-                  align="right"
-                />
-              </div>
-              <div className="w-16 text-right">
-                <SortableHeader
-                  label="Priority"
-                  col="priority"
-                  sort={sort}
-                  onToggle={toggleSort}
-                  align="right"
-                />
-              </div>
             </div>
           </div>
           <div className="divide-y divide-ink-100">
@@ -488,30 +525,6 @@ export default function Projects() {
                           blow out the row. Anything beyond renders as a
                           "+N" pill with the full list in the tooltip. */}
                       <LinkList links={p.links} max={2} />
-                    </div>
-                    {/* Fixed-width date column keeps trailing dates aligned
-                        across rows, even when some projects have no due date.
-                        For done projects we show the completion date instead
-                        of the due date — the due date stops being interesting
-                        once the work is finished. */}
-                    <div
-                      className="w-20 text-right text-xs tabular-nums text-ink-500"
-                      title={
-                        p.status === "done" && p.completed_at
-                          ? `Completed ${formatDate(p.completed_at)}`
-                          : p.due_date
-                            ? `Due ${formatDate(p.due_date)}`
-                            : undefined
-                      }
-                    >
-                      {p.status === "done" && p.completed_at
-                        ? formatDate(p.completed_at)
-                        : p.due_date
-                          ? formatDate(p.due_date)
-                          : ""}
-                    </div>
-                    <div className="flex w-16 justify-end">
-                      <PriorityBadge priority={p.priority} />
                     </div>
                   </div>
                 </Link>

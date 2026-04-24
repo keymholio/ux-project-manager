@@ -1,4 +1,4 @@
-import { Check, Trash2 } from "lucide-react";
+import { Check, ExternalLink, GripVertical, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
@@ -7,33 +7,59 @@ import {
   Avatar,
   Breadcrumbs,
   Button,
+  LinkList,
   PriorityBadge,
   Spinner,
   TaskStatusBadge,
-  TaskTypeBadge,
-  ToolLinks,
   formatDate,
 } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
+  LINK_TYPES,
+  LINK_TYPE_LABEL,
   PRIORITY_LABEL,
   TASK_STATUS_LABEL,
   TASK_STATUS_ORDER,
-  TASK_TYPE_LABEL,
   fmtProjectId,
   fmtTaskId,
   type Priority,
   type Profile,
   type Project,
+  type ProjectLink,
   type Task,
   type TaskStatus,
-  type TaskType,
 } from "../lib/types";
+
+// Quick sanity check before rendering a URL as a clickable link —
+// same helper as on ProjectDetail. Keeps relative paths and javascript:
+// URLs from masquerading as external links.
+const isLikelyUrl = (s: string): boolean => {
+  const t = s.trim();
+  return /^(https?:\/\/|\/\/)/i.test(t);
+};
+
+// A blank row for the links editor. Defaults to "other" so the dropdown
+// has a concrete selection; the user picks the real type and pastes a URL.
+const emptyLink = (): ProjectLink => ({ type: "other", url: "" });
+
+// Strip empty rows and trim whitespace before persisting. The cleaned
+// result is what we compare against the server snapshot for isDirty.
+// Tolerant of null/undefined so pre-migration rows don't crash here.
+const cleanLinks = (links: ProjectLink[] | null | undefined): ProjectLink[] =>
+  (links ?? [])
+    .map((l) => ({ type: l.type, url: l.url.trim() }))
+    .filter((l) => l.url);
 
 // Fields the user can edit on a task. Used for draft ↔ server diffing and
 // for building the UPDATE payload on save. Server-managed fields (id,
 // created_at, updated_at, created_by) are intentionally excluded.
+// `links` is an array so referential-equality diffing doesn't work — we
+// handle it separately in isDirty/save below. The legacy figma_url /
+// workfront_url / jira_url / figjam_url columns still exist on the row
+// but are no longer exposed as editable fields; their values were folded
+// into `links` by migration 007. `task_type` is likewise still on the
+// row (the DB column has a default), but no longer edited from the UI.
 const EDITABLE_FIELDS = [
   "title",
   "description",
@@ -41,12 +67,7 @@ const EDITABLE_FIELDS = [
   "assignee_id",
   "due_date",
   "priority",
-  "task_type",
   "project_id",
-  "figma_url",
-  "workfront_url",
-  "jira_url",
-  "figjam_url",
 ] as const;
 type EditableField = (typeof EDITABLE_FIELDS)[number];
 
@@ -69,6 +90,12 @@ export default function TaskDetail() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
+  // Drag-to-reorder state for the Links editor. Same pattern used in
+  // ProjectDetail: dragIdx is the row the user grabbed, overIdx is the
+  // slot an insert cursor would target if they released right now.
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+
   // Tracks which task id the draft was seeded from so realtime updates
   // don't overwrite in-progress edits on their way in.
   const initedForIdRef = useRef<string | null>(null);
@@ -84,7 +111,13 @@ export default function TaskDetail() {
       supabase.from("projects").select("*").order("name"),
     ]);
     if (tRes.error) setErr(tRes.error.message);
-    setTask(tRes.data ?? null);
+    // Defensive: if migration 007 hasn't been applied yet, `links` will be
+    // missing from the row. Normalize to an empty array so the editor
+    // doesn't blow up on `.map`.
+    const normalized = tRes.data
+      ? ({ ...tRes.data, links: tRes.data.links ?? [] } as Task)
+      : null;
+    setTask(normalized);
     setProfiles(pRes.data ?? []);
     setProjects(projRes.data ?? []);
   };
@@ -117,6 +150,9 @@ export default function TaskDetail() {
     for (const key of EDITABLE_FIELDS) {
       if (draft[key] !== task[key]) return true;
     }
+    // Order-dependent JSON comparison — reordering counts as a change.
+    if (JSON.stringify(cleanLinks(draft.links)) !== JSON.stringify(task.links))
+      return true;
     return false;
   }, [draft, task]);
 
@@ -143,6 +179,38 @@ export default function TaskDetail() {
     setSavedAt(null);
   };
 
+  // --- Links editor helpers --------------------------------------------------
+  const updateLink = (i: number, patch: Partial<ProjectLink>) => {
+    if (!draft) return;
+    const next = [...draft.links];
+    next[i] = { ...next[i], ...patch };
+    setDraft({ ...draft, links: next });
+    setSavedAt(null);
+  };
+  const addLink = () => {
+    if (!draft) return;
+    setDraft({ ...draft, links: [...draft.links, emptyLink()] });
+    setSavedAt(null);
+  };
+  const removeLink = (i: number) => {
+    if (!draft) return;
+    const next = draft.links.filter((_, idx) => idx !== i);
+    setDraft({ ...draft, links: next });
+    setSavedAt(null);
+  };
+  // Reorder using "insert-before-target" semantics. See the same helper
+  // on ProjectDetail for the derivation.
+  const moveLink = (from: number, to: number) => {
+    if (!draft) return;
+    if (from === to || from + 1 === to) return;
+    const next = [...draft.links];
+    const [moved] = next.splice(from, 1);
+    const target = from < to ? to - 1 : to;
+    next.splice(target, 0, moved);
+    setDraft({ ...draft, links: next });
+    setSavedAt(null);
+  };
+
   const save = async () => {
     if (!draft || !task || !isDirty) return;
     setSaving(true);
@@ -152,6 +220,10 @@ export default function TaskDetail() {
       if (draft[key] !== task[key]) {
         (diff as Record<string, unknown>)[key] = draft[key];
       }
+    }
+    const cleanedLinks = cleanLinks(draft.links);
+    if (JSON.stringify(cleanedLinks) !== JSON.stringify(task.links)) {
+      diff.links = cleanedLinks;
     }
     const { error } = await supabase
       .from("tasks")
@@ -165,6 +237,9 @@ export default function TaskDetail() {
     // Adopt the draft as the new server snapshot so isDirty flips off
     // without waiting for the realtime echo.
     setTask({ ...task, ...diff } as Task);
+    // Fold the cleaned links back into the draft so empty rows the user
+    // left behind get swept out on save.
+    setDraft({ ...draft, ...diff, links: cleanedLinks } as Task);
     setSaving(false);
     setSavedAt(Date.now());
   };
@@ -243,7 +318,6 @@ export default function TaskDetail() {
       <header className="flex items-start justify-between gap-4">
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <TaskTypeBadge type={draft.task_type} />
             <PriorityBadge priority={draft.priority} />
             <TaskStatusBadge status={draft.status} />
           </div>
@@ -340,23 +414,6 @@ export default function TaskDetail() {
             <PriorityBadge priority={draft.priority} />
           )}
         </Meta>
-        <Meta label="Type">
-          {canEdit ? (
-            <select
-              className="input"
-              value={draft.task_type}
-              onChange={(e) => setField("task_type", e.target.value as TaskType)}
-            >
-              {(Object.keys(TASK_TYPE_LABEL) as TaskType[]).map((t) => (
-                <option key={t} value={t}>
-                  {TASK_TYPE_LABEL[t]}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <TaskTypeBadge type={draft.task_type} />
-          )}
-        </Meta>
         <div ref={projectFieldRef}>
           <Meta label="Project">
             {isManager ? (
@@ -402,36 +459,128 @@ export default function TaskDetail() {
         )}
       </section>
 
-      {/* Links */}
+      {/* Links — same editor as ProjectDetail: dynamic rows with a fixed
+          set of types, drag-to-reorder, click-through on saved URLs. */}
       <section className="card p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-900">Links</h2>
         {canEdit ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {(["figma_url", "workfront_url", "jira_url", "figjam_url"] as const).map(
-              (f) => (
-                <label key={f} className="block">
-                  <span className="mb-1 block text-xs font-medium text-ink-600">
-                    {
-                      { figma_url: "Figma", workfront_url: "Workfront", jira_url: "Jira", figjam_url: "FigJam" }[f]
-                    }
-                  </span>
-                  <input
-                    className="input"
-                    value={draft[f] ?? ""}
-                    onChange={(e) => setField(f, e.target.value || null)}
-                    placeholder="https://…"
-                  />
-                </label>
-              ),
+          <div className="space-y-2">
+            {draft.links.length === 0 && (
+              <p className="text-xs text-ink-500">
+                No links yet. Add Figma, Workfront, docs, anything relevant.
+              </p>
             )}
+            {draft.links.map((link, i) => (
+              <div
+                key={i}
+                draggable
+                onDragStart={(e) => {
+                  setDragIdx(i);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", String(i));
+                }}
+                onDragOver={(e) => {
+                  if (dragIdx === null) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const pos =
+                    e.clientY - rect.top < rect.height / 2 ? i : i + 1;
+                  if (overIdx !== pos) setOverIdx(pos);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragIdx !== null && overIdx !== null)
+                    moveLink(dragIdx, overIdx);
+                  setDragIdx(null);
+                  setOverIdx(null);
+                }}
+                onDragEnd={() => {
+                  setDragIdx(null);
+                  setOverIdx(null);
+                }}
+                className={`flex flex-col gap-2 rounded-md sm:flex-row sm:items-center ${
+                  dragIdx === i ? "opacity-40" : ""
+                } ${
+                  overIdx === i &&
+                  dragIdx !== null &&
+                  dragIdx !== i &&
+                  dragIdx + 1 !== i
+                    ? "border-t-2 border-brand-500"
+                    : ""
+                } ${
+                  i === draft.links.length - 1 &&
+                  overIdx === draft.links.length &&
+                  dragIdx !== null &&
+                  dragIdx !== i
+                    ? "border-b-2 border-brand-500"
+                    : ""
+                }`}
+              >
+                <span
+                  className="hidden sm:flex h-8 w-4 items-center justify-center text-ink-400 cursor-grab active:cursor-grabbing"
+                  aria-hidden
+                  title="Drag to reorder"
+                >
+                  <GripVertical size={14} />
+                </span>
+                <select
+                  className="input sm:w-40"
+                  value={link.type}
+                  onChange={(e) =>
+                    updateLink(i, {
+                      type: e.target.value as ProjectLink["type"],
+                    })
+                  }
+                >
+                  {LINK_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {LINK_TYPE_LABEL[t]}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="input flex-1"
+                  value={link.url}
+                  onChange={(e) => updateLink(i, { url: e.target.value })}
+                  placeholder="https://…"
+                />
+                {link.url.trim() && isLikelyUrl(link.url) ? (
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-md p-2 text-ink-400 hover:bg-ink-100 hover:text-brand-700"
+                    aria-label="Open link in new tab"
+                    title="Open link in new tab"
+                  >
+                    <ExternalLink size={14} />
+                  </a>
+                ) : (
+                  <span className="w-[30px]" aria-hidden />
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeLink(i)}
+                  className="rounded-md p-2 text-ink-400 hover:bg-ink-100 hover:text-rose-600"
+                  aria-label="Remove link"
+                  title="Remove link"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addLink}
+              className="btn btn-secondary"
+            >
+              <Plus size={14} />
+              Add link
+            </button>
           </div>
         ) : (
-          <ToolLinks
-            figma={draft.figma_url}
-            workfront={draft.workfront_url}
-            jira={draft.jira_url}
-            figjam={draft.figjam_url}
-          />
+          <LinkList links={draft.links} />
         )}
       </section>
 

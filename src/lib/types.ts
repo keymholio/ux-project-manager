@@ -126,10 +126,14 @@ export interface Task {
   status: TaskStatus;
   priority: Priority;
   due_date: string | null;
+  // Legacy per-tool URL columns. Still in the DB but no longer edited
+  // from the UI — their values were folded into `links` by migration 007.
   figma_url: string | null;
   workfront_url: string | null;
   jira_url: string | null;
   figjam_url: string | null;
+  // User-defined links — same shape as projects.links. See ProjectLink.
+  links: ProjectLink[];
   project_id: string | null;
   assignee_id: string | null;
   created_by: string;
