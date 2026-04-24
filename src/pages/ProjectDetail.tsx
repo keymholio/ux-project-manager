@@ -74,10 +74,18 @@ const emptyLink = (): ProjectLink => ({ type: "figma", url: "" });
 
 // Strip empty rows and trim whitespace before persisting. We compare the
 // cleaned result against the server snapshot so "picked a type then cleared
-// the URL" doesn't count as dirty.
+// the URL" doesn't count as dirty. A trimmed title is kept if non-empty,
+// and the `title` key is omitted entirely when blank — that way the diff
+// against the server snapshot (which won't have the key at all for older
+// rows) doesn't flip to "dirty" just because the user opened the row.
 const cleanLinks = (links: ProjectLink[]): ProjectLink[] =>
   links
-    .map((l) => ({ type: l.type, url: l.url.trim() }))
+    .map((l) => {
+      const title = l.title?.trim();
+      const cleaned: ProjectLink = { type: l.type, url: l.url.trim() };
+      if (title) cleaned.title = title;
+      return cleaned;
+    })
     .filter((l) => l.url);
 
 export default function ProjectDetail() {
@@ -658,7 +666,7 @@ export default function ProjectDetail() {
                 <GripVertical size={14} />
               </span>
               <select
-                className="input sm:w-40"
+                className="input sm:w-32"
                 value={link.type}
                 onChange={(e) =>
                   updateLink(i, {
@@ -672,6 +680,16 @@ export default function ProjectDetail() {
                   </option>
                 ))}
               </select>
+              {/* Optional title. Narrower than the URL field — the URL is
+                  the primary input and titles tend to be short ("Mobile
+                  v3", "Hospital map"). When left blank, the list chip
+                  falls back to the type name. */}
+              <input
+                className="input sm:w-40"
+                value={link.title ?? ""}
+                onChange={(e) => updateLink(i, { title: e.target.value })}
+                placeholder="Title (optional)"
+              />
               <input
                 className="input flex-1"
                 value={link.url}

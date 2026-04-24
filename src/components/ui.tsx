@@ -148,7 +148,6 @@ const STATUS_COLORS: Record<ProjectStatus | TaskStatus, string> = {
   on_deck: "bg-sky-100 text-sky-800",
   in_progress: "bg-amber-100 text-amber-800",
   needs_review: "bg-purple-100 text-purple-800",
-  in_review: "bg-purple-100 text-purple-800",
   hand_off: "bg-fuchsia-100 text-fuchsia-800",
   in_development: "bg-indigo-100 text-indigo-800",
   vdqa: "bg-rose-100 text-rose-800",
@@ -361,6 +360,11 @@ export function LinkList({
     <div className="flex flex-wrap gap-1">
       {visible.map((l, i) => {
         const type = resolveLinkType(l);
+        // Prefer the user-supplied title, fall back to the type label.
+        // Keeping the type's brand colour either way means the chip still
+        // communicates provenance at a glance (Figma orange, Workfront
+        // cyan, etc.) even when the title says something unrelated.
+        const label = l.title?.trim() || LINK_TYPE_LABEL[type];
         return (
           <a
             key={`${type}-${l.url}-${i}`}
@@ -369,9 +373,12 @@ export function LinkList({
             rel="noreferrer"
             className={`chip hover:underline ${brandChipClass(type)}`}
             onClick={(e) => e.stopPropagation()}
-            title={l.url}
+            // Tooltip surfaces the URL (and the type when a title is in
+            // use, so the hover still disambiguates "what kind of link
+            // is this").
+            title={l.title?.trim() ? `${LINK_TYPE_LABEL[type]} · ${l.url}` : l.url}
           >
-            {LINK_TYPE_LABEL[type]} ↗
+            {label} ↗
           </a>
         );
       })}
@@ -380,7 +387,11 @@ export function LinkList({
           className="chip bg-ink-100 text-ink-600"
           title={links
             .slice(visible.length)
-            .map((l) => `${LINK_TYPE_LABEL[resolveLinkType(l)]}: ${l.url}`)
+            .map((l) => {
+              const type = resolveLinkType(l);
+              const label = l.title?.trim() || LINK_TYPE_LABEL[type];
+              return `${label}: ${l.url}`;
+            })
             .join(", ")}
         >
           +{hidden}

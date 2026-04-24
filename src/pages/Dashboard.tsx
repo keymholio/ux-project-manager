@@ -28,12 +28,11 @@ import {
 } from "../lib/types";
 
 // Order the designer dashboard groups tasks by status — leads with the
-// stuff that's actively moving (on deck / in progress / in review) and
-// parks Backlog at the bottom so it doesn't dominate the view.
+// stuff that's actively moving (on deck, in progress) and parks Backlog
+// at the bottom so it doesn't dominate the view.
 const DESIGNER_REST_STATUS_ORDER: TaskStatus[] = [
   "on_deck",
   "in_progress",
-  "in_review",
   "backlog",
 ];
 
@@ -209,7 +208,6 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
             <LegendSwatch className="bg-ink-300" label="Backlog" />
             <LegendSwatch className="bg-sky-400" label="On deck" />
             <LegendSwatch className="bg-amber-400" label="In progress" />
-            <LegendSwatch className="bg-purple-400" label="In review" />
           </div>
         </div>
         <div className="space-y-3">
@@ -257,15 +255,6 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
                               flexBasis: `${(byStatus.in_progress / mine.length) * 100}%`,
                             }}
                             title={`${byStatus.in_progress} in progress`}
-                          />
-                        ) : null}
-                        {byStatus.in_review ? (
-                          <div
-                            className="h-2 bg-purple-400"
-                            style={{
-                              flexBasis: `${(byStatus.in_review / mine.length) * 100}%`,
-                            }}
-                            title={`${byStatus.in_review} in review`}
                           />
                         ) : null}
                       </>

@@ -25,7 +25,6 @@ export type TaskStatus =
   | "backlog"
   | "on_deck"
   | "in_progress"
-  | "in_review"
   | "done";
 
 export type TaskType =
@@ -88,6 +87,11 @@ export const LINK_TYPE_LABEL: Record<ProjectLinkType, string> = {
 export interface ProjectLink {
   type: ProjectLinkType;
   url: string;
+  // Optional human-readable label for the link. When present, the chip
+  // renders this text (e.g. "Mobile mocks — v3") instead of the type
+  // name, making a dense list of links easier to scan. Older rows don't
+  // have this field; readers must treat it as optional.
+  title?: string;
 }
 
 // Short, human-readable ID formatters. The DB hands out a sequential int
@@ -185,7 +189,6 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: "Backlog",
   on_deck: "On deck",
   in_progress: "In progress",
-  in_review: "In review",
   done: "Done",
 };
 
@@ -193,7 +196,6 @@ export const TASK_STATUS_ORDER: TaskStatus[] = [
   "backlog",
   "on_deck",
   "in_progress",
-  "in_review",
   "done",
 ];
 

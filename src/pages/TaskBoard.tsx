@@ -267,7 +267,17 @@ export default function TaskBoard() {
         />
       ) : (
         <div className="flex-1 overflow-x-auto">
-          <div className="grid grid-cols-5 gap-3 min-w-[1100px] h-full">
+          {/* Column count is derived from TASK_STATUS_ORDER so dropping
+              a status (migration 010 removed In review) automatically
+              rebalances the grid to fill the viewport instead of leaving
+              a gap where the old column used to be. min-w floor ensures
+              columns stay usable if the viewport is very narrow. */}
+          <div
+            className="grid gap-3 h-full min-w-[880px]"
+            style={{
+              gridTemplateColumns: `repeat(${TASK_STATUS_ORDER.length}, minmax(0, 1fr))`,
+            }}
+          >
             {TASK_STATUS_ORDER.map((s) => (
               <Column
                 key={s}

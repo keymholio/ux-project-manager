@@ -926,7 +926,12 @@ function NewProjectModal({
     setBusy(true);
     setErr(null);
     const cleanedLinks = links
-      .map((l) => ({ type: l.type, url: l.url.trim() }))
+      .map((l) => {
+        const title = l.title?.trim();
+        const cleaned: ProjectLink = { type: l.type, url: l.url.trim() };
+        if (title) cleaned.title = title;
+        return cleaned;
+      })
       .filter((l) => l.url);
     const { data, error } = await supabase
       .from("projects")
@@ -1149,7 +1154,7 @@ function NewProjectModal({
                 className="flex flex-col gap-2 sm:flex-row sm:items-center"
               >
                 <select
-                  className="input sm:w-40"
+                  className="input sm:w-32"
                   value={link.type}
                   onChange={(e) =>
                     setLinks((prev) => {
@@ -1168,6 +1173,19 @@ function NewProjectModal({
                     </option>
                   ))}
                 </select>
+                {/* Optional title. Blank = fall back to the type name. */}
+                <input
+                  className="input sm:w-40"
+                  value={link.title ?? ""}
+                  onChange={(e) =>
+                    setLinks((prev) => {
+                      const next = [...prev];
+                      next[i] = { ...next[i], title: e.target.value };
+                      return next;
+                    })
+                  }
+                  placeholder="Title (optional)"
+                />
                 <input
                   className="input flex-1"
                   value={link.url}
