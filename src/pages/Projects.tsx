@@ -1196,7 +1196,9 @@ function NewProjectModal({
             <button
               type="button"
               onClick={() =>
-                setLinks((prev) => [...prev, { type: "other", url: "" }])
+                // Default to "figma" — that's the overwhelming majority of
+                // what the team pastes in; type can always be changed.
+                setLinks((prev) => [...prev, { type: "figma", url: "" }])
               }
               className="btn btn-secondary"
             >

@@ -66,10 +66,11 @@ const isLikelyUrl = (s: string): boolean => {
   return /^(https?:\/\/|\/\/)/i.test(t);
 };
 
-// A blank row for the links editor. Defaults to "other" so the dropdown
-// has a concrete selection; the user picks the real type and pastes a URL.
+// A blank row for the links editor. Defaults to "figma" because that's
+// the overwhelming majority of what the team pastes in; the type
+// dropdown still lets them pick something else before adding the URL.
 // Rows with an empty URL get dropped on save.
-const emptyLink = (): ProjectLink => ({ type: "other", url: "" });
+const emptyLink = (): ProjectLink => ({ type: "figma", url: "" });
 
 // Strip empty rows and trim whitespace before persisting. We compare the
 // cleaned result against the server snapshot so "picked a type then cleared
@@ -444,8 +445,7 @@ export default function ProjectDetail() {
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   return (
-    // Extra bottom padding so the sticky save bar never covers content.
-    <div className="p-6 max-w-5xl space-y-5 pb-24">
+    <div className="p-6 max-w-5xl space-y-5">
       <Breadcrumbs
         items={[
           { label: "Projects", to: "/projects" },
@@ -465,14 +465,33 @@ export default function ProjectDetail() {
             onChange={(e) => setField("name", e.target.value)}
           />
         </div>
-        <Button
-          onClick={deleteProject}
-          icon={<Trash2 size={14} />}
-          className="text-rose-700 hover:bg-rose-50"
-        >
-          Delete
-        </Button>
+        {/* Header-level action cluster: save controls on the left, delete
+            on the right. Putting Save next to Delete keeps everything the
+            user reaches for after editing in one place at the top of the
+            page, instead of making them scroll down to a separate
+            sticky bar. */}
+        <div className="flex items-center gap-2">
+          <HeaderSaveControls
+            isDirty={isDirty}
+            saving={saving}
+            savedAt={savedAt}
+            onSave={save}
+            onDiscard={discard}
+          />
+          <Button
+            onClick={deleteProject}
+            icon={<Trash2 size={14} />}
+            className="text-rose-700 hover:bg-rose-50"
+          >
+            Delete
+          </Button>
+        </div>
       </header>
+      {err && (
+        <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {err}
+        </div>
+      )}
 
       {/* Meta strip */}
       <section className="card p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -775,15 +794,6 @@ export default function ProjectDetail() {
 
       {/* Comments */}
       <CommentThread projectId={project.id} />
-
-      <SaveBar
-        isDirty={isDirty}
-        saving={saving}
-        savedAt={savedAt}
-        error={err}
-        onSave={save}
-        onDiscard={discard}
-      />
     </div>
   );
 }
@@ -797,51 +807,45 @@ function Meta({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-// Sticky save bar — appears at the bottom of the scroll container when
-// there are unsaved changes, flashes a confirmation after a successful
-// save, and surfaces server errors inline so the user doesn't have to
-// hunt for them. Shared between ProjectDetail and TaskDetail conceptually;
-// kept inline for now because it's small and the two pages diverge a bit.
-function SaveBar({
+// Inline save controls rendered in the detail header, next to the Delete
+// button. Only shows something when there's state to report — unsaved
+// edits (Discard / Save buttons) or a just-finished save (green "Saved"
+// confirmation). Errors surface separately as a banner below the header.
+function HeaderSaveControls({
   isDirty,
   saving,
   savedAt,
-  error,
   onSave,
   onDiscard,
 }: {
   isDirty: boolean;
   saving: boolean;
   savedAt: number | null;
-  error: string | null;
   onSave: () => void;
   onDiscard: () => void;
 }) {
-  const visible = isDirty || !!savedAt || !!error;
-  if (!visible) return null;
-  return (
-    <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-end gap-3 rounded-lg border border-ink-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
-      {error && (
-        <span className="mr-auto text-sm text-rose-700">{error}</span>
-      )}
-      {isDirty ? (
-        <>
-          <span className="text-sm text-ink-500">Unsaved changes</span>
-          <Button onClick={onDiscard} disabled={saving}>
-            Discard
-          </Button>
-          <Button variant="primary" onClick={onSave} disabled={saving}>
-            {saving ? <Spinner /> : "Save changes"}
-          </Button>
-        </>
-      ) : savedAt ? (
-        <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700">
-          <Check size={14} />
-          Saved
-        </span>
-      ) : null}
-    </div>
-  );
+  if (isDirty) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-ink-500">Unsaved</span>
+        <Button onClick={onDiscard} disabled={saving}>
+          Discard
+        </Button>
+        <Button variant="primary" onClick={onSave} disabled={saving}>
+          {saving ? <Spinner /> : "Save"}
+        </Button>
+      </div>
+    );
+  }
+  if (savedAt) {
+    return (
+      <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700">
+        <Check size={14} />
+        Saved
+      </span>
+    );
+  }
+  return null;
 }
 
 // -----------------------------------------------------------------------------
