@@ -40,6 +40,20 @@ const VALID_CATEGORY = new Set<string>(Object.keys(CATEGORY_LABEL));
 // Status filter has two synthetic options on top of the real statuses.
 type StatusFilter = ProjectStatus | "active" | "all";
 
+// Group-by axis. "none" shows the flat sorted list; everything else breaks
+// the list into sections with a header per group. Designer grouping uses
+// project assignees as the grouping key — a project with multiple designers
+// shows up under each of them so you can read either lens ("what does Alice
+// own?" and "how many eyes are on project X?") without switching pages.
+type GroupBy = "none" | "designer" | "category" | "status";
+const VALID_GROUP_BY = new Set<string>(["none", "designer", "category", "status"]);
+const GROUP_BY_LABEL: Record<GroupBy, string> = {
+  none: "No grouping",
+  designer: "Designer",
+  category: "Category",
+  status: "Status",
+};
+
 // Sort config. Assigned-to and Links are intentionally not sortable — an
 // avatar stack or a set of link chips has no natural ordering users would
 // expect. ID sorts numerically by short_id, which matches how the IDs were
@@ -62,6 +76,7 @@ interface StoredProjectFilters {
   category?: ProjectCategory | "all";
   // "all" | "unassigned" | "<user-id>" — matches the values in the select.
   designer?: string;
+  groupBy?: GroupBy;
   sort?: { col: SortColumn; dir: SortDir } | null;
 }
 const readStoredFilters = (): StoredProjectFilters => {
@@ -111,6 +126,13 @@ export default function Projects() {
   // id against the profile list on read — if a stale id slips in, the filter
   // will simply match nothing, which is the right degenerate behaviour.
   const designerFilter: string = params.get("designer") ?? "all";
+  // Default to grouping by designer — that's the lens the team reaches for
+  // most often ("what's on Alice's plate?"). An explicit ?group=none in the
+  // URL or a stored preference still wins.
+  const groupBy: GroupBy = (() => {
+    const g = params.get("group");
+    return g && VALID_GROUP_BY.has(g) ? (g as GroupBy) : "designer";
+  })();
   const setStatusFilter = (s: StatusFilter) => {
     const next = new URLSearchParams(params);
     if (s === "active") next.delete("status");
@@ -127,6 +149,13 @@ export default function Projects() {
     const next = new URLSearchParams(params);
     if (d === "all") next.delete("designer");
     else next.set("designer", d);
+    setParams(next, { replace: true });
+  };
+  const setGroupBy = (g: GroupBy) => {
+    const next = new URLSearchParams(params);
+    // "designer" is the default; strip the param so clean URLs stay clean.
+    if (g === "designer") next.delete("group");
+    else next.set("group", g);
     setParams(next, { replace: true });
   };
 
@@ -183,6 +212,15 @@ export default function Projects() {
       next.set("designer", stored.designer);
       changed = true;
     }
+    if (
+      !params.has("group") &&
+      stored.groupBy &&
+      stored.groupBy !== "designer" &&
+      VALID_GROUP_BY.has(stored.groupBy)
+    ) {
+      next.set("group", stored.groupBy);
+      changed = true;
+    }
     if (changed) setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -193,9 +231,10 @@ export default function Projects() {
       status: statusFilter,
       category: categoryFilter,
       designer: designerFilter,
+      groupBy,
       sort,
     });
-  }, [statusFilter, categoryFilter, designerFilter, sort]);
+  }, [statusFilter, categoryFilter, designerFilter, groupBy, sort]);
 
   const refresh = async () => {
     const [pRes, aRes, profRes] = await Promise.all([
@@ -294,6 +333,96 @@ export default function Projects() {
     return list;
   }, [filtered, sort]);
 
+  // Break the sorted list into sections for the current group axis. When
+  // groupBy === "none" we still return one section so the renderer has a
+  // single code path. A project with multiple designers appears under each
+  // of them when grouping by designer — we surface that lens instead of
+  // picking a "primary" assignee. Within each section rows keep whatever
+  // order `sortedFiltered` gave them.
+  const grouped = useMemo(() => {
+    type Group = {
+      key: string;
+      label: string | null;
+      // Small visual affordance to the left of the label (category dot,
+      // designer avatar). Undefined when the axis doesn't have one.
+      leading?: React.ReactNode;
+      projects: Project[];
+    };
+
+    if (groupBy === "none") {
+      return [{ key: "all", label: null, projects: sortedFiltered } as Group];
+    }
+
+    if (groupBy === "category") {
+      const by = new Map<ProjectCategory, Project[]>();
+      for (const p of sortedFiltered) {
+        const list = by.get(p.category) ?? [];
+        list.push(p);
+        by.set(p.category, list);
+      }
+      return (Object.keys(CATEGORY_LABEL) as ProjectCategory[])
+        .filter((c) => by.has(c))
+        .map<Group>((c) => ({
+          key: `cat-${c}`,
+          label: CATEGORY_LABEL[c],
+          leading: (
+            <span
+              className="inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full"
+              style={{ background: CATEGORY_COLOR[c] }}
+            />
+          ),
+          projects: by.get(c)!,
+        }));
+    }
+
+    if (groupBy === "status") {
+      const by = new Map<ProjectStatus, Project[]>();
+      for (const p of sortedFiltered) {
+        const list = by.get(p.status) ?? [];
+        list.push(p);
+        by.set(p.status, list);
+      }
+      return PROJECT_STATUS_ORDER.filter((s) => by.has(s)).map<Group>((s) => ({
+        key: `status-${s}`,
+        label: PROJECT_STATUS_LABEL[s],
+        projects: by.get(s)!,
+      }));
+    }
+
+    // groupBy === "designer"
+    const byDesigner = new Map<string, Project[]>();
+    const unassigned: Project[] = [];
+    for (const p of sortedFiltered) {
+      const team = assigneesByProject.get(p.id);
+      if (!team || team.size === 0) {
+        unassigned.push(p);
+        continue;
+      }
+      for (const uid of team) {
+        const list = byDesigner.get(uid) ?? [];
+        list.push(p);
+        byDesigner.set(uid, list);
+      }
+    }
+    const designerGroups = [...profiles]
+      .filter((pr) => byDesigner.has(pr.id))
+      .sort((a, b) => a.full_name.localeCompare(b.full_name))
+      .map<Group>((pr) => ({
+        key: `designer-${pr.id}`,
+        label: pr.full_name,
+        leading: <Avatar profile={pr} size={18} />,
+        projects: byDesigner.get(pr.id)!,
+      }));
+    if (unassigned.length > 0) {
+      designerGroups.push({
+        key: "designer-unassigned",
+        label: "Unassigned",
+        projects: unassigned,
+      });
+    }
+    return designerGroups;
+  }, [sortedFiltered, groupBy, assigneesByProject, profiles]);
+
   if (loading)
     return (
       <div className="flex h-full items-center justify-center">
@@ -304,7 +433,7 @@ export default function Projects() {
 
   return (
     <div className="p-6 space-y-4">
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Projects</h1>
           <p className="text-sm text-ink-500">
@@ -313,15 +442,34 @@ export default function Projects() {
               : "Projects assigned to or tracked by the designers."}
           </p>
         </div>
-        {isManager && (
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setCreating(true)}
+        <div className="flex items-center gap-2">
+          {/* Group-by axis. Kept next to the New project button instead of
+              down with the filters because changing the grouping lens is
+              closer in spirit to a view action than a filter. */}
+          <select
+            className="input w-auto"
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+            aria-label="Group by"
           >
-            New project
-          </Button>
-        )}
+            {(Object.keys(GROUP_BY_LABEL) as GroupBy[]).map((g) => (
+              <option key={g} value={g}>
+                {g === "none"
+                  ? GROUP_BY_LABEL[g]
+                  : `Group by ${GROUP_BY_LABEL[g].toLowerCase()}`}
+              </option>
+            ))}
+          </select>
+          {isManager && (
+            <Button
+              variant="primary"
+              icon={<Plus size={14} />}
+              onClick={() => setCreating(true)}
+            >
+              New project
+            </Button>
+          )}
+        </div>
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -431,7 +579,7 @@ export default function Projects() {
               />
             </div>
             <div className="flex flex-shrink-0 items-center gap-3">
-              <div className="w-32">
+              <div className="w-44">
                 <SortableHeader
                   label="Category"
                   col="category"
@@ -451,85 +599,108 @@ export default function Projects() {
               <div className="w-40">Links</div>
             </div>
           </div>
-          <div className="divide-y divide-ink-100">
-            {sortedFiltered.map((p) => {
-              const team = assignees
-                .filter((a) => a.project_id === p.id)
-                .map((a) => profiles.find((pr) => pr.id === a.user_id))
-                .filter((x): x is Profile => !!x);
-              return (
-                <Link
-                  key={p.id}
-                  to={`/projects/${p.id}`}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-ink-50 transition"
-                >
-                  {/* Short ID — fixed-width so rows align. Same Jira-style
-                      identifier surfaced in the breadcrumb on the detail
-                      page, so users can match what they see in the list
-                      against what they've shared in Slack etc. */}
-                  <div className="w-14 flex-shrink-0 font-mono text-xs tabular-nums text-ink-500">
-                    {fmtProjectId(p.short_id)}
+          <div>
+            {grouped.map((group, gi) => (
+              <div key={group.key}>
+                {group.label !== null && (
+                  /* Section header when grouping is active. Sticky so the
+                     group label stays visible as you scan down a long
+                     section. Different background from the main column
+                     header above so they don't visually blur together. */
+                  <div
+                    className={`flex items-center gap-2 border-ink-200 bg-ink-100/70 px-4 py-1.5 text-xs font-semibold text-ink-700 ${
+                      gi === 0 ? "border-t-0" : "border-t"
+                    }`}
+                  >
+                    {group.leading}
+                    <span>{group.label}</span>
+                    <span className="font-normal text-ink-500 tabular-nums">
+                      · {group.projects.length}
+                    </span>
                   </div>
-                  {/* Name + description — takes whatever space is left. */}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-ink-900">
-                      {p.name}
-                    </div>
-                    {p.description && (
-                      <div className="truncate text-xs text-ink-500">
-                        {p.description}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-shrink-0 items-center gap-3">
-                    {/* Category — colored dot preserves the visual cue from
-                        the old design; the label makes it scannable without
-                        a hover. */}
-                    <div className="flex w-32 items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                        style={{ background: CATEGORY_COLOR[p.category] }}
-                      />
-                      <span className="truncate text-xs text-ink-700">
-                        {CATEGORY_LABEL[p.category]}
-                      </span>
-                    </div>
-                    <div className="w-32">
-                      <ProjectStatusBadge status={p.status} />
-                    </div>
-                    {/* Assigned-to column. One person: avatar + full name.
-                        Multiple: stack + first name + "+N" so the row stays
-                        within its fixed width. Zero: a dash. */}
-                    <div className="flex w-40 min-w-0 items-center gap-2">
-                      {team.length === 0 ? (
-                        <span className="text-sm text-ink-500">—</span>
-                      ) : team.length === 1 ? (
-                        <>
-                          <Avatar profile={team[0]} size={22} />
-                          <span className="truncate text-sm text-ink-900">
-                            {team[0].full_name}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <AvatarStack profiles={team} size={22} />
-                          <span className="truncate text-sm text-ink-900">
-                            {team[0].full_name.split(" ")[0]} +
-                            {team.length - 1}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                    <div className="w-40 overflow-hidden">
-                      {/* Cap to 2 visible chips so long link lists don't
-                          blow out the row. Anything beyond renders as a
-                          "+N" pill with the full list in the tooltip. */}
-                      <LinkList links={p.links} max={2} />
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
+                )}
+                <div className="divide-y divide-ink-100">
+                  {group.projects.map((p) => {
+                    const team = assignees
+                      .filter((a) => a.project_id === p.id)
+                      .map((a) => profiles.find((pr) => pr.id === a.user_id))
+                      .filter((x): x is Profile => !!x);
+                    return (
+                      <Link
+                        key={`${group.key}-${p.id}`}
+                        to={`/projects/${p.id}`}
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-ink-50 transition"
+                      >
+                        {/* Short ID — fixed-width so rows align. Same Jira-style
+                            identifier surfaced in the breadcrumb on the detail
+                            page, so users can match what they see in the list
+                            against what they've shared in Slack etc. */}
+                        <div className="w-14 flex-shrink-0 font-mono text-xs tabular-nums text-ink-500">
+                          {fmtProjectId(p.short_id)}
+                        </div>
+                        {/* Name + description — takes whatever space is left. */}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-ink-900">
+                            {p.name}
+                          </div>
+                          {p.description && (
+                            <div className="truncate text-xs text-ink-500">
+                              {p.description}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-shrink-0 items-center gap-3">
+                          {/* Category — colored dot preserves the visual cue from
+                              the old design; the label makes it scannable without
+                              a hover. */}
+                          <div className="flex w-44 items-center gap-2">
+                            <span
+                              className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                              style={{ background: CATEGORY_COLOR[p.category] }}
+                            />
+                            <span className="truncate text-xs text-ink-700">
+                              {CATEGORY_LABEL[p.category]}
+                            </span>
+                          </div>
+                          <div className="w-32">
+                            <ProjectStatusBadge status={p.status} />
+                          </div>
+                          {/* Assigned-to column. One person: avatar + full name.
+                              Multiple: stack + first name + "+N" so the row stays
+                              within its fixed width. Zero: a dash. */}
+                          <div className="flex w-40 min-w-0 items-center gap-2">
+                            {team.length === 0 ? (
+                              <span className="text-sm text-ink-500">—</span>
+                            ) : team.length === 1 ? (
+                              <>
+                                <Avatar profile={team[0]} size={22} />
+                                <span className="truncate text-sm text-ink-900">
+                                  {team[0].full_name}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <AvatarStack profiles={team} size={22} />
+                                <span className="truncate text-sm text-ink-900">
+                                  {team[0].full_name.split(" ")[0]} +
+                                  {team.length - 1}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                          <div className="w-40 overflow-hidden">
+                            {/* Cap to 2 visible chips so long link lists don't
+                                blow out the row. Anything beyond renders as a
+                                "+N" pill with the full list in the tooltip. */}
+                            <LinkList links={p.links} max={2} />
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
