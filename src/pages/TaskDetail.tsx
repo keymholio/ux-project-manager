@@ -274,9 +274,15 @@ export default function TaskDetail() {
 
   const assignee = profiles.find((p) => p.id === draft.assignee_id) ?? null;
   // Managers can also own tasks, so the assignee picker includes everyone.
-  const team = [...profiles].sort((a, b) =>
-    a.full_name.localeCompare(b.full_name),
-  );
+  // Inactive teammates drop out of the picker unless they're currently the
+  // assignee — keep the existing assignment visible so a manager can see
+  // (and reassign) it, but don't let anyone be freshly assigned to someone
+  // who's been deactivated.
+  const team = [...profiles]
+    .filter(
+      (p) => (p.is_active ?? true) || p.id === draft.assignee_id,
+    )
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   // Scroll the Project field into view and try to focus the combobox input.
   // Used when a task has no project and the user clicks the "Add project"

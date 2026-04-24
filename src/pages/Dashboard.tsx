@@ -1,4 +1,10 @@
-import { AlertCircle, CheckCircle2, Clock, Users } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  Users,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -14,10 +20,22 @@ import { supabase } from "../lib/supabase";
 import {
   PROJECT_STATUS_ORDER,
   PROJECT_STATUS_LABEL,
+  TASK_STATUS_LABEL,
   type Profile,
   type Project,
   type Task,
+  type TaskStatus,
 } from "../lib/types";
+
+// Order the designer dashboard groups tasks by status — leads with the
+// stuff that's actively moving (on deck / in progress / in review) and
+// parks Backlog at the bottom so it doesn't dominate the view.
+const DESIGNER_REST_STATUS_ORDER: TaskStatus[] = [
+  "on_deck",
+  "in_progress",
+  "in_review",
+  "backlog",
+];
 
 interface DashboardData {
   projects: Project[];
@@ -106,9 +124,12 @@ export default function Dashboard() {
 function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
   // Everyone (managers included) can own tasks & projects, so the workload
   // chart covers the whole team — sorted alphabetically for consistency.
-  const team = [...profiles].sort((a, b) =>
-    a.full_name.localeCompare(b.full_name),
-  );
+  // Inactive users (flipped off via the Admin page) drop out of the count
+  // and the workload chart entirely; their historical tasks still exist,
+  // but they shouldn't skew team capacity numbers.
+  const team = [...profiles]
+    .filter((p) => p.is_active ?? true)
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   const tasksByAssignee = useMemo(() => {
     const m = new Map<string, Task[]>();
@@ -404,7 +425,14 @@ function DesignerDashboard({
 
       <TaskList title="Overdue" items={overdue} projects={projects} profiles={profiles} emptyNote="Nothing overdue." />
       <TaskList title="Due today" items={today} projects={projects} profiles={profiles} emptyNote="No tasks due today." />
-      <TaskList title="Rest of your open work" items={rest} projects={projects} profiles={profiles} emptyNote="Inbox zero." />
+      <TaskList
+        title="Rest of your open work"
+        items={rest}
+        projects={projects}
+        profiles={profiles}
+        emptyNote="Inbox zero."
+        groupByStatus
+      />
     </div>
   );
 }
@@ -415,52 +443,124 @@ function TaskList({
   projects,
   profiles,
   emptyNote,
+  groupByStatus = false,
 }: {
   title: string;
   items: Task[];
   projects: Project[];
   profiles: Profile[];
   emptyNote: string;
+  /** When true, split the list into status buckets using
+   *  DESIGNER_REST_STATUS_ORDER. Buckets with zero items are skipped so
+   *  the section doesn't sprout empty headers. Each bucket is
+   *  collapsible; starts expanded. */
+  groupByStatus?: boolean;
 }) {
+  // Which status groups the user has collapsed. Scoped to this TaskList
+  // instance — not persisted across reloads, which is fine for a
+  // dashboard that's meant to be glanceable. Kept as a Set of statuses
+  // so toggle is a single add/remove call.
+  const [collapsed, setCollapsed] = useState<Set<TaskStatus>>(new Set());
+  const toggle = (s: TaskStatus) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s);
+      else next.add(s);
+      return next;
+    });
+  // Single row render — shared between the flat and grouped layouts.
+  // Task title is the primary label (dark, bold-ish); project name sits
+  // underneath as a small, light-gray hint. Status + priority pills were
+  // removed: status reads from the group header in the grouped layout,
+  // and priority wasn't pulling its weight next to the title.
+  const renderRow = (t: Task) => {
+    const parent = projects.find((p) => p.id === t.project_id);
+    const a = profiles.find((p) => p.id === t.assignee_id) ?? null;
+    const overdue =
+      t.due_date && new Date(t.due_date) < new Date() && t.status !== "done";
+    return (
+      <li key={t.id} className="py-2">
+        <Link
+          to={`/tasks/${t.id}`}
+          className="flex items-center gap-3 rounded hover:bg-ink-50 -mx-1 px-1"
+        >
+          <Avatar profile={a} size={24} />
+          <div className="flex-1 min-w-0">
+            {/* Project name sits above as a small light-gray caption, with
+                the task title below as the primary dark label — so the
+                eye lands on what's being worked on without losing the
+                project context. */}
+            <div className="truncate text-xs text-ink-500">
+              {parent ? parent.name : "No project"}
+            </div>
+            <div className="truncate text-sm font-medium text-ink-900">
+              {t.title}
+            </div>
+          </div>
+          <div
+            className={`text-xs tabular-nums ${overdue ? "text-rose-700 font-medium" : "text-ink-500"}`}
+          >
+            {formatDate(t.due_date)}
+          </div>
+        </Link>
+      </li>
+    );
+  };
+
   return (
     <section className="card p-5">
       <h2 className="mb-3 text-sm font-semibold text-ink-900">{title}</h2>
       {items.length === 0 ? (
         <p className="text-sm text-ink-500">{emptyNote}</p>
-      ) : (
-        <ul className="divide-y divide-ink-100">
-          {items.map((t) => {
-            const parent = projects.find((p) => p.id === t.project_id);
-            const a = profiles.find((p) => p.id === t.assignee_id) ?? null;
-            const overdue =
-              t.due_date && new Date(t.due_date) < new Date() && t.status !== "done";
+      ) : groupByStatus ? (
+        // Bucket the items by status and render each non-empty group with
+        // its own small heading. Order comes from DESIGNER_REST_STATUS_ORDER
+        // — active stages first, Backlog last.
+        <div className="space-y-4">
+          {DESIGNER_REST_STATUS_ORDER.map((status) => {
+            const bucket = items.filter((t) => t.status === status);
+            if (bucket.length === 0) return null;
+            const isCollapsed = collapsed.has(status);
             return (
-              <li key={t.id} className="py-2">
-                <Link
-                  to={`/tasks/${t.id}`}
-                  className="flex items-center gap-3 rounded hover:bg-ink-50 -mx-1 px-1"
+              <div key={status}>
+                {/* Gray stripe behind each group header. Stretches across
+                    the full width of the card by pulling out with -mx-5
+                    to counter the card's p-5 padding, then re-adds px-5
+                    inside so the text keeps its horizontal alignment.
+                    Rendered as a button so the whole stripe is the hit
+                    target — click anywhere to collapse/expand. */}
+                <button
+                  type="button"
+                  onClick={() => toggle(status)}
+                  aria-expanded={!isCollapsed}
+                  aria-controls={`rest-group-${status}`}
+                  className="-mx-5 mb-1 flex w-[calc(100%+2.5rem)] items-center gap-2 bg-ink-100 px-5 py-1.5 text-left text-xs font-medium uppercase tracking-wide text-ink-600 hover:bg-ink-200 transition-colors"
                 >
-                  <Avatar profile={a} size={24} />
-                  <div className="flex-1 min-w-0">
-                    <div className="truncate text-sm font-medium text-ink-900">
-                      {t.title}
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-500">
-                      {parent && <span className="truncate">{parent.name}</span>}
-                      <TaskStatusBadge status={t.status} />
-                      <PriorityBadge priority={t.priority} />
-                    </div>
-                  </div>
-                  <div
-                    className={`text-xs tabular-nums ${overdue ? "text-rose-700 font-medium" : "text-ink-500"}`}
+                  <ChevronRight
+                    size={12}
+                    className={`text-ink-500 transition-transform ${
+                      isCollapsed ? "" : "rotate-90"
+                    }`}
+                  />
+                  <span>{TASK_STATUS_LABEL[status]}</span>
+                  <span className="tabular-nums text-ink-400">
+                    {bucket.length}
+                  </span>
+                </button>
+                {!isCollapsed && (
+                  <ul
+                    id={`rest-group-${status}`}
+                    className="divide-y divide-ink-100"
                   >
-                    {formatDate(t.due_date)}
-                  </div>
-                </Link>
-              </li>
+                    {bucket.map(renderRow)}
+                  </ul>
+                )}
+              </div>
             );
           })}
-        </ul>
+        </div>
+      ) : (
+        <ul className="divide-y divide-ink-100">{items.map(renderRow)}</ul>
       )}
     </section>
   );

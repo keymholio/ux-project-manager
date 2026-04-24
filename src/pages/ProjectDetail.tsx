@@ -7,14 +7,11 @@ import {
   Breadcrumbs,
   Button,
   CategoryBadge,
-  LinkList,
   PriorityBadge,
-  ProjectStatusBadge,
   Spinner,
   TaskStatusBadge,
   formatDate,
 } from "../components/ui";
-import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
   CATEGORY_LABEL,
@@ -32,6 +29,12 @@ import {
   type ProjectStatus,
   type Task,
 } from "../lib/types";
+
+// Project editing is open to the whole team — the RLS policies were
+// loosened in migration 008 so any authenticated user can update any
+// project, including reassigning designers. User admin (creating,
+// deactivating, role-changing other users) is still manager-only and
+// lives on the /admin/users page.
 
 // Fields the user can edit. Used both for diffing draft ↔ server and for
 // building the UPDATE payload when saving. Everything else (id, owner_id,
@@ -78,7 +81,6 @@ const cleanLinks = (links: ProjectLink[]): ProjectLink[] =>
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
-  const { isManager } = useAuth();
 
   // Server snapshots — what the DB last told us.
   const [project, setProject] = useState<Project | null>(null);
@@ -328,10 +330,16 @@ export default function ProjectDetail() {
   if (!project || !draft) return <div className="p-6">Project not found.</div>;
 
   // Team section covers everyone (managers included) — a manager can put
-  // themselves on a project they're actively contributing to.
-  const team = [...profiles].sort((a, b) =>
-    a.full_name.localeCompare(b.full_name),
-  );
+  // themselves on a project they're actively contributing to. Inactive
+  // users are hidden from the picker but remain listed if they're already
+  // assigned, so historical assignments don't silently disappear when a
+  // manager deactivates someone mid-project.
+  const team = [...profiles]
+    .filter(
+      (p) =>
+        (p.is_active ?? true) || draftAssigneeIds.includes(p.id),
+    )
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   return (
     // Extra bottom padding so the sticky save bar never covers content.
@@ -349,95 +357,69 @@ export default function ProjectDetail() {
             <CategoryBadge category={draft.category} />
             <PriorityBadge priority={draft.priority} />
           </div>
-          {isManager ? (
-            <input
-              className="mt-2 w-full bg-transparent text-2xl font-semibold text-ink-900 focus:outline-none focus:bg-white rounded px-1 -mx-1"
-              value={draft.name}
-              onChange={(e) => setField("name", e.target.value)}
-            />
-          ) : (
-            <h1 className="mt-2 text-2xl font-semibold text-ink-900">
-              {draft.name}
-            </h1>
-          )}
+          <input
+            className="mt-2 w-full bg-transparent text-2xl font-semibold text-ink-900 focus:outline-none focus:bg-white rounded px-1 -mx-1"
+            value={draft.name}
+            onChange={(e) => setField("name", e.target.value)}
+          />
         </div>
-        {isManager && (
-          <Button
-            onClick={deleteProject}
-            icon={<Trash2 size={14} />}
-            className="text-rose-700 hover:bg-rose-50"
-          >
-            Delete
-          </Button>
-        )}
+        <Button
+          onClick={deleteProject}
+          icon={<Trash2 size={14} />}
+          className="text-rose-700 hover:bg-rose-50"
+        >
+          Delete
+        </Button>
       </header>
 
       {/* Meta strip */}
       <section className="card p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
         <Meta label="Status">
-          {isManager ? (
-            <select
-              className="input"
-              value={draft.status}
-              onChange={(e) => setField("status", e.target.value as ProjectStatus)}
-            >
-              {PROJECT_STATUS_ORDER.map((s) => (
-                <option key={s} value={s}>
-                  {PROJECT_STATUS_LABEL[s]}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <ProjectStatusBadge status={draft.status} />
-          )}
+          <select
+            className="input"
+            value={draft.status}
+            onChange={(e) => setField("status", e.target.value as ProjectStatus)}
+          >
+            {PROJECT_STATUS_ORDER.map((s) => (
+              <option key={s} value={s}>
+                {PROJECT_STATUS_LABEL[s]}
+              </option>
+            ))}
+          </select>
         </Meta>
         <Meta label="Category">
-          {isManager ? (
-            <select
-              className="input"
-              value={draft.category}
-              onChange={(e) =>
-                setField("category", e.target.value as ProjectCategory)
-              }
-            >
-              {(Object.keys(CATEGORY_LABEL) as ProjectCategory[]).map((c) => (
-                <option key={c} value={c}>
-                  {CATEGORY_LABEL[c]}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <CategoryBadge category={draft.category} />
-          )}
+          <select
+            className="input"
+            value={draft.category}
+            onChange={(e) =>
+              setField("category", e.target.value as ProjectCategory)
+            }
+          >
+            {(Object.keys(CATEGORY_LABEL) as ProjectCategory[]).map((c) => (
+              <option key={c} value={c}>
+                {CATEGORY_LABEL[c]}
+              </option>
+            ))}
+          </select>
         </Meta>
         <Meta label="Priority">
-          {isManager ? (
-            <select
-              className="input"
-              value={draft.priority}
-              onChange={(e) => setField("priority", e.target.value as Priority)}
-            >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
-          ) : (
-            <PriorityBadge priority={draft.priority} />
-          )}
+          <select
+            className="input"
+            value={draft.priority}
+            onChange={(e) => setField("priority", e.target.value as Priority)}
+          >
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
         </Meta>
         <Meta label="Due date">
-          {isManager ? (
-            <input
-              className="input"
-              type="date"
-              value={draft.due_date ?? ""}
-              onChange={(e) => setField("due_date", e.target.value || null)}
-            />
-          ) : (
-            <span className="text-sm text-ink-900">
-              {formatDate(draft.due_date)}
-            </span>
-          )}
+          <input
+            className="input"
+            type="date"
+            value={draft.due_date ?? ""}
+            onChange={(e) => setField("due_date", e.target.value || null)}
+          />
         </Meta>
         {/* Only surfaces once the server has stamped completed_at (either via
             the projects_complete trigger or on insert). Read from `project`
@@ -454,170 +436,160 @@ export default function ProjectDetail() {
       {/* Description */}
       <section className="card p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-900">Description</h2>
-        {isManager ? (
-          <textarea
-            className="input"
-            rows={3}
-            value={draft.description ?? ""}
-            onChange={(e) => setField("description", e.target.value || null)}
-            placeholder="Add a brief description or notes."
-          />
-        ) : (
-          <p className="whitespace-pre-wrap text-sm text-ink-700">
-            {draft.description ?? "—"}
-          </p>
-        )}
+        <textarea
+          className="input"
+          rows={3}
+          value={draft.description ?? ""}
+          onChange={(e) => setField("description", e.target.value || null)}
+          placeholder="Add a brief description or notes."
+        />
       </section>
 
       {/* Links */}
       <section className="card p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-900">Links</h2>
-        {isManager ? (
-          <div className="space-y-2">
-            {draft.links.length === 0 && (
-              <p className="text-xs text-ink-500">
-                No links yet. Add Figma, Workfront, docs, anything relevant.
-              </p>
-            )}
-            {draft.links.map((link, i) => (
-              <div
-                key={i}
-                // Whole row is draggable. Browsers let <input>/<select>
-                // swallow their own drag events (text selection, native
-                // dropdown open), so grabbing inside a field won't start
-                // a reorder drag — only the grip handle or the blank
-                // edges of the row will. That's what we want.
-                draggable
-                onDragStart={(e) => {
-                  setDragIdx(i);
-                  e.dataTransfer.effectAllowed = "move";
-                  // Safari needs *some* data to actually initiate the drag.
-                  e.dataTransfer.setData("text/plain", String(i));
-                }}
-                onDragOver={(e) => {
-                  if (dragIdx === null) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  // Top half of the row → insert before (position i).
-                  // Bottom half → insert after (position i+1). This lets
-                  // the user target any slot, including "after the last
-                  // row", which a row-only drop target couldn't reach.
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const pos =
-                    e.clientY - rect.top < rect.height / 2 ? i : i + 1;
-                  if (overIdx !== pos) setOverIdx(pos);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  if (dragIdx !== null && overIdx !== null)
-                    moveLink(dragIdx, overIdx);
-                  setDragIdx(null);
-                  setOverIdx(null);
-                }}
-                onDragEnd={() => {
-                  setDragIdx(null);
-                  setOverIdx(null);
-                }}
-                className={`flex flex-col gap-2 rounded-md sm:flex-row sm:items-center ${
-                  dragIdx === i ? "opacity-40" : ""
-                } ${
-                  // Draw an insertion cursor above this row when the hover
-                  // position maps to "before i" and the drop wouldn't be a
-                  // no-op (source row itself, or the row directly above).
-                  overIdx === i &&
-                  dragIdx !== null &&
-                  dragIdx !== i &&
-                  dragIdx + 1 !== i
-                    ? "border-t-2 border-brand-500"
-                    : ""
-                } ${
-                  // For the last row only, a bottom-border shows when the
-                  // drop would land after it — no next row exists to host
-                  // the top-border cursor.
-                  i === draft.links.length - 1 &&
-                  overIdx === draft.links.length &&
-                  dragIdx !== null &&
-                  dragIdx !== i
-                    ? "border-b-2 border-brand-500"
-                    : ""
-                }`}
-              >
-                {/* Grip handle — visual cue that the row is draggable.
-                    The drag itself is wired on the whole row so users
-                    can grab from empty space too, but the grip is the
-                    obvious affordance and gets the "grab" cursor. */}
-                <span
-                  className="hidden sm:flex h-8 w-4 items-center justify-center text-ink-400 cursor-grab active:cursor-grabbing"
-                  aria-hidden
-                  title="Drag to reorder"
-                >
-                  <GripVertical size={14} />
-                </span>
-                <select
-                  className="input sm:w-40"
-                  value={link.type}
-                  onChange={(e) =>
-                    updateLink(i, {
-                      type: e.target.value as ProjectLink["type"],
-                    })
-                  }
-                >
-                  {LINK_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {LINK_TYPE_LABEL[t]}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className="input flex-1"
-                  value={link.url}
-                  onChange={(e) => updateLink(i, { url: e.target.value })}
-                  placeholder="https://…"
-                />
-                {/* Open link in a new tab. Only shown when the URL field
-                    has something in it — for an empty row the button would
-                    have nothing to open. Rendered as an <a> rather than a
-                    button so middle-click, cmd-click, and right-click →
-                    "open in new window" all work the way users expect. */}
-                {link.url.trim() && isLikelyUrl(link.url) ? (
-                  <a
-                    href={link.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-md p-2 text-ink-400 hover:bg-ink-100 hover:text-brand-700"
-                    aria-label="Open link in new tab"
-                    title="Open link in new tab"
-                  >
-                    <ExternalLink size={14} />
-                  </a>
-                ) : (
-                  // Placeholder keeps the delete button aligned across rows
-                  // even when the open button isn't shown yet.
-                  <span className="w-[30px]" aria-hidden />
-                )}
-                <button
-                  type="button"
-                  onClick={() => removeLink(i)}
-                  className="rounded-md p-2 text-ink-400 hover:bg-ink-100 hover:text-rose-600"
-                  aria-label="Remove link"
-                  title="Remove link"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={addLink}
-              className="btn btn-secondary"
+        <div className="space-y-2">
+          {draft.links.length === 0 && (
+            <p className="text-xs text-ink-500">
+              No links yet. Add Figma, Workfront, docs, anything relevant.
+            </p>
+          )}
+          {draft.links.map((link, i) => (
+            <div
+              key={i}
+              // Whole row is draggable. Browsers let <input>/<select>
+              // swallow their own drag events (text selection, native
+              // dropdown open), so grabbing inside a field won't start
+              // a reorder drag — only the grip handle or the blank
+              // edges of the row will. That's what we want.
+              draggable
+              onDragStart={(e) => {
+                setDragIdx(i);
+                e.dataTransfer.effectAllowed = "move";
+                // Safari needs *some* data to actually initiate the drag.
+                e.dataTransfer.setData("text/plain", String(i));
+              }}
+              onDragOver={(e) => {
+                if (dragIdx === null) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                // Top half of the row → insert before (position i).
+                // Bottom half → insert after (position i+1). This lets
+                // the user target any slot, including "after the last
+                // row", which a row-only drop target couldn't reach.
+                const rect = e.currentTarget.getBoundingClientRect();
+                const pos =
+                  e.clientY - rect.top < rect.height / 2 ? i : i + 1;
+                if (overIdx !== pos) setOverIdx(pos);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragIdx !== null && overIdx !== null)
+                  moveLink(dragIdx, overIdx);
+                setDragIdx(null);
+                setOverIdx(null);
+              }}
+              onDragEnd={() => {
+                setDragIdx(null);
+                setOverIdx(null);
+              }}
+              className={`flex flex-col gap-2 rounded-md sm:flex-row sm:items-center ${
+                dragIdx === i ? "opacity-40" : ""
+              } ${
+                // Draw an insertion cursor above this row when the hover
+                // position maps to "before i" and the drop wouldn't be a
+                // no-op (source row itself, or the row directly above).
+                overIdx === i &&
+                dragIdx !== null &&
+                dragIdx !== i &&
+                dragIdx + 1 !== i
+                  ? "border-t-2 border-brand-500"
+                  : ""
+              } ${
+                // For the last row only, a bottom-border shows when the
+                // drop would land after it — no next row exists to host
+                // the top-border cursor.
+                i === draft.links.length - 1 &&
+                overIdx === draft.links.length &&
+                dragIdx !== null &&
+                dragIdx !== i
+                  ? "border-b-2 border-brand-500"
+                  : ""
+              }`}
             >
-              <Plus size={14} />
-              Add link
-            </button>
-          </div>
-        ) : (
-          <LinkList links={draft.links} />
-        )}
+              {/* Grip handle — visual cue that the row is draggable.
+                  The drag itself is wired on the whole row so users
+                  can grab from empty space too, but the grip is the
+                  obvious affordance and gets the "grab" cursor. */}
+              <span
+                className="hidden sm:flex h-8 w-4 items-center justify-center text-ink-400 cursor-grab active:cursor-grabbing"
+                aria-hidden
+                title="Drag to reorder"
+              >
+                <GripVertical size={14} />
+              </span>
+              <select
+                className="input sm:w-40"
+                value={link.type}
+                onChange={(e) =>
+                  updateLink(i, {
+                    type: e.target.value as ProjectLink["type"],
+                  })
+                }
+              >
+                {LINK_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {LINK_TYPE_LABEL[t]}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="input flex-1"
+                value={link.url}
+                onChange={(e) => updateLink(i, { url: e.target.value })}
+                placeholder="https://…"
+              />
+              {/* Open link in a new tab. Only shown when the URL field
+                  has something in it — for an empty row the button would
+                  have nothing to open. Rendered as an <a> rather than a
+                  button so middle-click, cmd-click, and right-click →
+                  "open in new window" all work the way users expect. */}
+              {link.url.trim() && isLikelyUrl(link.url) ? (
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-md p-2 text-ink-400 hover:bg-ink-100 hover:text-brand-700"
+                  aria-label="Open link in new tab"
+                  title="Open link in new tab"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              ) : (
+                // Placeholder keeps the delete button aligned across rows
+                // even when the open button isn't shown yet.
+                <span className="w-[30px]" aria-hidden />
+              )}
+              <button
+                type="button"
+                onClick={() => removeLink(i)}
+                className="rounded-md p-2 text-ink-400 hover:bg-ink-100 hover:text-rose-600"
+                aria-label="Remove link"
+                title="Remove link"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addLink}
+            className="btn btn-secondary"
+          >
+            <Plus size={14} />
+            Add link
+          </button>
+        </div>
       </section>
 
       {/* Assignees */}
@@ -626,17 +598,6 @@ export default function ProjectDetail() {
         <div className="flex flex-wrap gap-2">
           {team.map((d) => {
             const on = draftAssigneeIds.includes(d.id);
-            if (!isManager) {
-              return on ? (
-                <span
-                  key={d.id}
-                  className="chip bg-ink-100 text-ink-700 flex items-center gap-1"
-                >
-                  <Avatar profile={d} size={16} />
-                  {d.full_name}
-                </span>
-              ) : null;
-            }
             return (
               <button
                 key={d.id}
@@ -650,9 +611,6 @@ export default function ProjectDetail() {
               </button>
             );
           })}
-          {!isManager && draftAssigneeIds.length === 0 && (
-            <p className="text-sm text-ink-500">No one assigned yet.</p>
-          )}
         </div>
       </section>
 

@@ -27,23 +27,28 @@ import {
 } from "../lib/types";
 
 // Same sessionStorage pattern as Projects.tsx — remember the last view so
-// sidebar-nav round-trips preserve the user's filters.
-const FILTERS_KEY = "ui:tasks:filters";
+// sidebar-nav round-trips preserve the user's filters. The key is scoped
+// by user id so signing out and signing back in as someone else (same
+// tab) doesn't inherit the previous user's filter — otherwise a manager
+// signing in after a designer would stick on "Assigned to me" instead of
+// getting the role-appropriate "All designers" default.
+const filtersKey = (userId?: string) =>
+  userId ? `ui:tasks:filters:${userId}` : "ui:tasks:filters:anon";
 interface StoredTaskFilters {
   assignee?: string;
   project?: string;
 }
-const readStoredTaskFilters = (): StoredTaskFilters => {
+const readStoredTaskFilters = (userId?: string): StoredTaskFilters => {
   try {
-    const raw = sessionStorage.getItem(FILTERS_KEY);
+    const raw = sessionStorage.getItem(filtersKey(userId));
     return raw ? (JSON.parse(raw) as StoredTaskFilters) : {};
   } catch {
     return {};
   }
 };
-const writeStoredTaskFilters = (f: StoredTaskFilters) => {
+const writeStoredTaskFilters = (f: StoredTaskFilters, userId?: string) => {
   try {
-    sessionStorage.setItem(FILTERS_KEY, JSON.stringify(f));
+    sessionStorage.setItem(filtersKey(userId), JSON.stringify(f));
   } catch {
     // ignore
   }
@@ -61,17 +66,21 @@ export default function TaskBoard() {
   const [creating, setCreating] = useState(false);
 
   // Filters — URL param > sessionStorage > role-aware default.
+  // Designers default to "Assigned to me" so the board lands on their own
+  // work out of the box. Managers default to "all" since they need the
+  // team-wide view. The stored value wins over the default so a designer
+  // who explicitly switched to "all" in a previous session keeps that.
   const [assigneeFilter, setAssigneeFilter] = useState<string>(() => {
     const p = params.get("assignee");
     if (p) return p;
-    const stored = readStoredTaskFilters().assignee;
+    const stored = readStoredTaskFilters(profile?.id).assignee;
     if (stored) return stored;
-    return isManager ? "all" : profile?.id ?? "all";
+    return isManager ? "all" : "mine";
   });
   const [projectFilter, setProjectFilter] = useState<string>(() => {
     const p = params.get("project");
     if (p) return p;
-    return readStoredTaskFilters().project ?? "all";
+    return readStoredTaskFilters(profile?.id).project ?? "all";
   });
   const [query, setQuery] = useState("");
 
@@ -112,11 +121,14 @@ export default function TaskBoard() {
 
   // Persist filters so they survive navigation (not just back/forward).
   useEffect(() => {
-    writeStoredTaskFilters({
-      assignee: assigneeFilter,
-      project: projectFilter,
-    });
-  }, [assigneeFilter, projectFilter]);
+    writeStoredTaskFilters(
+      {
+        assignee: assigneeFilter,
+        project: projectFilter,
+      },
+      profile?.id,
+    );
+  }, [assigneeFilter, projectFilter, profile?.id]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -218,10 +230,17 @@ export default function TaskBoard() {
           <option value="unassigned">Unassigned</option>
           {[...profiles]
             .filter((p) => p.id !== profile?.id)
+            // Hide deactivated users from the filter dropdown, unless
+            // the current selection points at one (so the filter stays
+            // valid until the user manually changes it).
+            .filter(
+              (p) => (p.is_active ?? true) || p.id === assigneeFilter,
+            )
             .sort((a, b) => a.full_name.localeCompare(b.full_name))
             .map((p) => (
               <option key={p.id} value={p.id}>
                 {p.full_name}
+                {p.is_active === false ? " (inactive)" : ""}
               </option>
             ))}
         </select>
@@ -512,9 +531,12 @@ function NewTaskModal({
   };
 
   // Anyone on the team can be assigned — managers often self-assign work too.
-  const team = [...profiles].sort((a, b) =>
-    a.full_name.localeCompare(b.full_name),
-  );
+  // New tasks never carry a pre-assigned inactive user, so it's safe to
+  // filter the picker down to active teammates here. Existing assignments
+  // on already-created tasks are handled separately in TaskDetail.
+  const team = [...profiles]
+    .filter((p) => p.is_active ?? true)
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   return (
     <Modal open title="New task" onClose={onClose} wide>

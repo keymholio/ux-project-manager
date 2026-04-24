@@ -9,6 +9,7 @@ import ResetPassword from "./pages/ResetPassword";
 import Settings from "./pages/Settings";
 import TaskBoard from "./pages/TaskBoard";
 import TaskDetail from "./pages/TaskDetail";
+import UserAdmin from "./pages/UserAdmin";
 
 export default function App() {
   const { session, loading, isRecovering } = useAuth();
@@ -46,6 +47,9 @@ export default function App() {
         <Route path="/tasks" element={<TaskBoard />} />
         <Route path="/tasks/:id" element={<TaskDetail />} />
         <Route path="/settings" element={<Settings />} />
+        {/* Manager-only. Guard is re-enforced inside the page so a
+            non-manager typing the URL gets bounced to the dashboard. */}
+        <Route path="/admin/users" element={<UserAdmin />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

@@ -49,6 +49,11 @@ export interface Profile {
   full_name: string;
   role: UserRole;
   avatar_color: string;
+  // Added in migration 008. Managers flip this to false from the User
+  // Administration page to hide someone from the team roster without
+  // deleting their work history. Defaults to true at the DB level so
+  // rows that pre-date the migration still read as active.
+  is_active: boolean;
   created_at: string;
 }
 

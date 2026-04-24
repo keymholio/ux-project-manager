@@ -96,7 +96,6 @@ const writeStoredFilters = (f: StoredProjectFilters) => {
 };
 
 export default function Projects() {
-  const { isManager } = useAuth();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -437,9 +436,7 @@ export default function Projects() {
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Projects</h1>
           <p className="text-sm text-ink-500">
-            {isManager
-              ? "Create, assign, and track projects across your designers."
-              : "Projects assigned to or tracked by the designers."}
+            Create, assign, and track projects across the team.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -460,15 +457,16 @@ export default function Projects() {
               </option>
             ))}
           </select>
-          {isManager && (
-            <Button
-              variant="primary"
-              icon={<Plus size={14} />}
-              onClick={() => setCreating(true)}
-            >
-              New project
-            </Button>
-          )}
+          {/* Creating projects is open to the whole team (migration 008
+              loosened the insert policy), so every signed-in user sees
+              this button. */}
+          <Button
+            variant="primary"
+            icon={<Plus size={14} />}
+            onClick={() => setCreating(true)}
+          >
+            New project
+          </Button>
         </div>
       </header>
 
@@ -523,10 +521,19 @@ export default function Projects() {
           <option value="all">All designers</option>
           <option value="unassigned">Unassigned</option>
           {[...profiles]
+            // Hide deactivated teammates from the filter dropdown so the
+            // list isn't cluttered with people who shouldn't be picking
+            // up new work. The selected value survives even if the user
+            // gets deactivated mid-session — the option below keeps it in
+            // the DOM so the <select> doesn't silently drop the filter.
+            .filter(
+              (p) => (p.is_active ?? true) || p.id === designerFilter,
+            )
             .sort((a, b) => a.full_name.localeCompare(b.full_name))
             .map((p) => (
               <option key={p.id} value={p.id}>
                 {p.full_name}
+                {p.is_active === false ? " (inactive)" : ""}
               </option>
             ))}
         </select>
@@ -552,7 +559,7 @@ export default function Projects() {
       {sortedFiltered.length === 0 ? (
         <EmptyState
           title="No projects match your filters"
-          hint={isManager ? "Clear filters or create a new project." : undefined}
+          hint="Clear filters or create a new project."
         />
       ) : (
         <div className="card overflow-hidden">

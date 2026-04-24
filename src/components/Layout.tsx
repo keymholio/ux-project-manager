@@ -1,4 +1,4 @@
-import { KanbanSquare, LayoutDashboard, LogOut, FolderKanban } from "lucide-react";
+import { KanbanSquare, LayoutDashboard, LogOut, FolderKanban, Users } from "lucide-react";
 import { type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -7,10 +7,17 @@ import { Avatar } from "./ui";
 export default function Layout({ children }: { children: ReactNode }) {
   const { profile, signOut, isManager } = useAuth();
 
+  // Admin link appears only for managers. Everyone else gets the same
+  // three-item nav they had before — the route is also guarded on the
+  // page itself (and by RLS on the write side) so hiding the nav entry
+  // is a UX nicety rather than the security boundary.
   const navItems = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard },
     { to: "/projects", label: "Projects", icon: FolderKanban },
     { to: "/tasks", label: "Tasks", icon: KanbanSquare },
+    ...(isManager
+      ? [{ to: "/admin/users", label: "Users", icon: Users }]
+      : []),
   ];
 
   return (
