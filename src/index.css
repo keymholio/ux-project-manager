@@ -85,18 +85,28 @@
     @apply text-ink-600 hover:bg-ink-100 hover:text-ink-900;
   }
   .input {
+    /* text-base (16px) on mobile, text-sm (14px) on sm+ — iOS Safari
+       auto-zooms the viewport whenever the user taps a form field whose
+       font-size is below 16px, and frequently fails to zoom back out
+       after blur, leaving the page stuck at a zoomed-in scale. Bumping
+       the mobile size to 16px is the standard workaround that keeps
+       both the layout tight on desktop and the focus behavior sane on
+       phones. */
     @apply block w-full rounded-md border border-ink-200 px-3 py-1.5
-           text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-500
-           focus:outline-none focus:ring-2 focus:ring-brand-500/20;
+           text-base sm:text-sm text-ink-900 placeholder:text-ink-400
+           focus:border-brand-500 focus:outline-none focus:ring-2
+           focus:ring-brand-500/20;
     background-color: rgb(var(--surface));
   }
-  /* Pin a fixed 34px height on single-line inputs and selects so all three
+  /* Pin a fixed height on single-line inputs and selects so all three
      (text input, date input, select, and the combobox which is a text input)
-     line up pixel-for-pixel. box-border keeps padding inside that 34px.
+     line up pixel-for-pixel. box-border keeps padding inside that fixed
+     height. Mobile gets 40px to give the 16px font room to breathe; sm+
+     drops back to the original 34px for a denser desktop layout.
      Textareas are intentionally excluded — they should grow with `rows`. */
   input.input,
   select.input {
-    @apply h-[34px] box-border leading-tight;
+    @apply h-10 sm:h-[34px] box-border leading-tight;
   }
   /* Strip the native <select> chrome and draw our own chevron so the field
      matches the rest exactly. Inline SVG avoids an extra asset request. */
