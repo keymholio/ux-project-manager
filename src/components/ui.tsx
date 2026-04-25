@@ -123,7 +123,7 @@ export function AvatarStack({
       {profiles.slice(0, 4).map((p) => (
         <span
           key={p.id}
-          className="ring-2 ring-white rounded-full"
+          className="ring-2 ring-surface rounded-full"
           style={{ lineHeight: 0 }}
         >
           <Avatar profile={p} size={size} />
@@ -131,7 +131,7 @@ export function AvatarStack({
       ))}
       {profiles.length > 4 && (
         <span
-          className="inline-flex items-center justify-center rounded-full bg-ink-200 text-ink-600 ring-2 ring-white font-medium"
+          className="inline-flex items-center justify-center rounded-full bg-ink-200 text-ink-600 ring-2 ring-surface font-medium"
           style={{ width: size, height: size, fontSize: size * 0.4 }}
         >
           +{profiles.length - 4}
@@ -142,16 +142,25 @@ export function AvatarStack({
 }
 
 // ---------- Badges ----------
+// Status pills tint a hue's 100/800 pair in light mode. For dark mode we
+// drop a translucent 500-tint as the chip background and bump the text up
+// to the 300 step — using opacity rather than a flat 900 keeps the chip
+// readable on either dark or slightly-elevated surfaces. backlog uses the
+// ink scale, which already flips through the CSS variable layer.
 const STATUS_COLORS: Record<ProjectStatus | TaskStatus, string> = {
   backlog: "bg-ink-100 text-ink-700",
-  discovery: "bg-sky-100 text-sky-800",
-  on_deck: "bg-sky-100 text-sky-800",
-  in_progress: "bg-amber-100 text-amber-800",
-  needs_review: "bg-purple-100 text-purple-800",
-  hand_off: "bg-fuchsia-100 text-fuchsia-800",
-  in_development: "bg-indigo-100 text-indigo-800",
-  vdqa: "bg-rose-100 text-rose-800",
-  done: "bg-emerald-100 text-emerald-800",
+  discovery: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-300",
+  on_deck: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-300",
+  in_progress:
+    "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300",
+  needs_review:
+    "bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-300",
+  hand_off:
+    "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-500/20 dark:text-fuchsia-300",
+  in_development:
+    "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-300",
+  vdqa: "bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300",
+  done: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300",
 };
 
 export function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
@@ -186,7 +195,7 @@ export function PriorityBadge({ priority }: { priority: Priority }) {
   // default state of most work and don't need a visual chip.
   if (priority !== "high") return null;
   return (
-    <span className="chip bg-rose-100 text-rose-800">
+    <span className="chip bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300">
       {PRIORITY_LABEL[priority]}
     </span>
   );
@@ -251,7 +260,7 @@ export function Modal({
       onClick={dismissOnBackdropClick ? onClose : undefined}
     >
       <div
-        className={`w-full ${wide ? "max-w-2xl" : "max-w-lg"} rounded-xl bg-white shadow-xl`}
+        className={`w-full ${wide ? "max-w-2xl" : "max-w-lg"} rounded-xl bg-surface shadow-xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-ink-200 px-5 py-3">
@@ -281,7 +290,7 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-ink-200 bg-white/50 p-10 text-center">
+    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-ink-200 bg-surface/50 p-10 text-center">
       <p className="text-base font-medium text-ink-900">{title}</p>
       {hint && <p className="mt-1 text-sm text-ink-500">{hint}</p>}
       {action && <div className="mt-4">{action}</div>}
@@ -313,10 +322,14 @@ export function ToolLinks({
   figjam?: string | null;
 }) {
   const links: { label: string; url: string; cls: string }[] = [];
-  if (figma) links.push({ label: "Figma", url: figma, cls: "bg-[#ff6b2b]/10 text-[#b44800]" });
-  if (figjam) links.push({ label: "FigJam", url: figjam, cls: "bg-[#ffd64a]/20 text-[#8a6d00]" });
-  if (workfront) links.push({ label: "Workfront", url: workfront, cls: "bg-[#00b2e3]/10 text-[#00657f]" });
-  if (jira) links.push({ label: "Jira", url: jira, cls: "bg-[#2684ff]/10 text-[#0747a6]" });
+  // Same dark-mode treatment as brandChipClass — text shifts from a deep
+  // brand-hue value to a light one so the chips stay readable on dark
+  // surfaces. Kept duplicated rather than refactored because ToolLinks is
+  // legacy (the live app uses LinkList + brandChipClass).
+  if (figma) links.push({ label: "Figma", url: figma, cls: "bg-[#ff6b2b]/10 text-[#b44800] dark:bg-[#ff6b2b]/15 dark:text-[#ffb380]" });
+  if (figjam) links.push({ label: "FigJam", url: figjam, cls: "bg-[#ffd64a]/20 text-[#8a6d00] dark:bg-[#ffd64a]/15 dark:text-[#ffe48a]" });
+  if (workfront) links.push({ label: "Workfront", url: workfront, cls: "bg-[#00b2e3]/10 text-[#00657f] dark:bg-[#00b2e3]/15 dark:text-[#7fdcf2]" });
+  if (jira) links.push({ label: "Jira", url: jira, cls: "bg-[#2684ff]/10 text-[#0747a6] dark:bg-[#2684ff]/20 dark:text-[#a8c5f9]" });
   if (links.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1">
@@ -415,17 +428,24 @@ function resolveLinkType(l: ProjectLink | { label?: string; url: string }): Proj
 }
 
 function brandChipClass(type: ProjectLinkType): string {
+  // Each tool's chip keeps its brand hue as the "wash" (the bg) and uses
+  // a deep variant of the same hue for light-mode text. In dark mode we
+  // bump the wash slightly (10% → 15-20%) and swap text to a *lighter*
+  // shade of the same hue so it reads well on a dark surface — the deep
+  // hex values (e.g. #b44800) become near-invisible against a 10% tint
+  // of their own hue on a near-black background. web/other already use
+  // the ink scale which auto-flips through the CSS-variable layer.
   switch (type) {
-    case "figma":
-      return "bg-[#ff6b2b]/10 text-[#b44800]";
-    case "figjam":
-      return "bg-[#ffd64a]/20 text-[#8a6d00]";
-    case "workfront":
-      return "bg-[#00b2e3]/10 text-[#00657f]";
-    case "jira":
-      return "bg-[#2684ff]/10 text-[#0747a6]";
-    case "presentation":
-      return "bg-[#7c3aed]/10 text-[#5b21b6]";
+    case "figma": // brand: #ff6b2b (orange)
+      return "bg-[#ff6b2b]/10 text-[#b44800] dark:bg-[#ff6b2b]/15 dark:text-[#ffb380]";
+    case "figjam": // brand: #ffd64a (yellow)
+      return "bg-[#ffd64a]/20 text-[#8a6d00] dark:bg-[#ffd64a]/15 dark:text-[#ffe48a]";
+    case "workfront": // brand: #00b2e3 (cyan)
+      return "bg-[#00b2e3]/10 text-[#00657f] dark:bg-[#00b2e3]/15 dark:text-[#7fdcf2]";
+    case "jira": // brand: #2684ff (blue)
+      return "bg-[#2684ff]/10 text-[#0747a6] dark:bg-[#2684ff]/20 dark:text-[#a8c5f9]";
+    case "presentation": // brand: #7c3aed (purple)
+      return "bg-[#7c3aed]/10 text-[#5b21b6] dark:bg-[#7c3aed]/20 dark:text-[#c4b5fd]";
     case "web":
     case "other":
     default:

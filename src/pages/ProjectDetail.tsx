@@ -185,7 +185,14 @@ export default function ProjectDetail() {
     }
     // Order-dependent JSON comparison for the links array — the order
     // the user arranges them in is meaningful, so we shouldn't sort.
-    if (JSON.stringify(cleanLinks(draft.links)) !== JSON.stringify(project.links))
+    // Run BOTH sides through cleanLinks so the diff isn't driven by
+    // server-side artifacts: stale `title: ""` / `title: null` from
+    // older rows, or differing key insertion order from PostgREST. Without
+    // this normalization, pristine projects load as already-dirty.
+    if (
+      JSON.stringify(cleanLinks(draft.links)) !==
+      JSON.stringify(cleanLinks(project.links))
+    )
       return true;
     // Order-independent assignee comparison.
     if (draftAssigneeIds.length !== assigneeIds.length) return true;
@@ -453,7 +460,7 @@ export default function ProjectDetail() {
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   return (
-    <div className="p-6 max-w-5xl space-y-5">
+    <div className="p-6 space-y-5">
       <Breadcrumbs
         items={[
           { label: "Projects", to: "/projects" },
@@ -468,7 +475,7 @@ export default function ProjectDetail() {
             <PriorityBadge priority={draft.priority} />
           </div>
           <input
-            className="mt-2 w-full bg-transparent text-2xl font-semibold text-ink-900 focus:outline-none focus:bg-white rounded px-1 -mx-1"
+            className="mt-2 w-full bg-transparent text-2xl font-semibold text-ink-900 focus:outline-none focus:bg-surface rounded px-1 -mx-1"
             value={draft.name}
             onChange={(e) => setField("name", e.target.value)}
           />
@@ -489,14 +496,14 @@ export default function ProjectDetail() {
           <Button
             onClick={deleteProject}
             icon={<Trash2 size={14} />}
-            className="text-rose-700 hover:bg-rose-50"
+            className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
           >
             Delete
           </Button>
         </div>
       </header>
       {err && (
-        <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
           {err}
         </div>
       )}
@@ -787,7 +794,7 @@ export default function ProjectDetail() {
                 <li key={t.id} className="py-2">
                   <Link
                     to={`/tasks/${t.id}`}
-                    className="flex items-center gap-3 rounded hover:bg-ink-50 -mx-1 px-1"
+                    className="flex items-center gap-3 rounded hover:bg-ink-100 -mx-1 px-1"
                   >
                     <span className="w-12 flex-shrink-0 font-mono text-xs tabular-nums text-ink-400">
                       {fmtTaskId(t.short_id)}
@@ -950,7 +957,7 @@ function LabelsEditor({
             <button
               type="button"
               onClick={() => onToggle(l.id)}
-              className="rounded-full hover:bg-white/20"
+              className="rounded-full hover:bg-surface/20"
               aria-label={`Remove label ${l.name}`}
             >
               <X size={12} />

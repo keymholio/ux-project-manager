@@ -13,8 +13,49 @@
       "cv04",
       "cv11";
   }
+  /*
+   * Color tokens. Values are space-separated rgb triples (no rgb() wrapper)
+   * so Tailwind's alpha syntax can splice them into `rgb(... / <alpha>)`.
+   * Light values live on :root; .dark inverts the ink scale so a class
+   * like `text-ink-900` keeps meaning "highest-contrast foreground" in
+   * either mode without rewriting markup. `surface` is a dedicated chrome
+   * token used in place of `bg-white`.
+   */
   :root {
     color-scheme: light;
+    --ink-50: 247 247 248;
+    --ink-100: 238 238 241;
+    --ink-200: 220 220 227;
+    --ink-300: 185 185 198;
+    --ink-400: 139 139 160;
+    --ink-500: 94 94 120;
+    --ink-600: 63 63 90;
+    --ink-700: 42 42 66;
+    --ink-800: 26 26 46;
+    --ink-900: 14 14 31;
+    --surface: 255 255 255;
+  }
+  .dark {
+    color-scheme: dark;
+    /* Mirrored ink scale, but spaced more widely than a literal inversion
+       so the elevation hierarchy reads clearly: page bg is the deepest,
+       surface lifts above it, and ink-100 (used by hover states) lifts
+       above surface. With a too-tight scale the rows on the projects
+       list disappear into the page on hover. */
+    --ink-50: 11 11 22;   /* page background — deepest */
+    --ink-100: 38 38 64;  /* hover bg — clearly above surface */
+    --ink-200: 56 56 86;  /* borders */
+    --ink-300: 86 86 116;
+    --ink-400: 124 124 152;
+    --ink-500: 162 162 184;
+    --ink-600: 196 196 214;
+    --ink-700: 222 222 232;
+    --ink-800: 238 238 244;
+    --ink-900: 248 248 250; /* high-contrast foreground text */
+    /* Cards / sidebar / inputs sit between page bg and the hover lift —
+       distinctly elevated above --ink-50 but with room for hover states
+       to lift further. */
+    --surface: 26 26 48;
   }
   body {
     @apply bg-ink-50 text-ink-900;
@@ -31,15 +72,23 @@
     @apply bg-brand-600 text-white hover:bg-brand-700;
   }
   .btn-secondary {
-    @apply border border-ink-200 bg-white text-ink-700 hover:bg-ink-50;
+    /* Use the raw CSS variable instead of @apply bg-surface so this
+       block compiles even if Tailwind's @apply resolver hasn't picked
+       up the extended `surface` token yet (happens during dev-server
+       reloads after editing tailwind.config.js). The surface token is
+       still available as a regular utility (`className="bg-surface"`)
+       in JSX. */
+    @apply border border-ink-200 text-ink-700 hover:bg-ink-100;
+    background-color: rgb(var(--surface));
   }
   .btn-ghost {
     @apply text-ink-600 hover:bg-ink-100 hover:text-ink-900;
   }
   .input {
-    @apply block w-full rounded-md border border-ink-200 bg-white px-3 py-1.5
+    @apply block w-full rounded-md border border-ink-200 px-3 py-1.5
            text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-500
            focus:outline-none focus:ring-2 focus:ring-brand-500/20;
+    background-color: rgb(var(--surface));
   }
   /* Pin a fixed 34px height on single-line inputs and selects so all three
      (text input, date input, select, and the combobox which is a text input)
@@ -62,8 +111,14 @@
   input[type="date"].input::-webkit-datetime-edit {
     padding: 0;
   }
+  /* Native date-picker indicator is dark-on-dark in dark mode — invert it
+     so it stays visible. */
+  .dark input[type="date"].input::-webkit-calendar-picker-indicator {
+    filter: invert(1) opacity(0.6);
+  }
   .card {
-    @apply rounded-lg border border-ink-200 bg-white shadow-card;
+    @apply rounded-lg border border-ink-200 shadow-card;
+    background-color: rgb(var(--surface));
   }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;

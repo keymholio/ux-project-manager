@@ -475,7 +475,9 @@ function Column({
   return (
     <div
       className={`flex flex-col rounded-lg border ${
-        dragOver ? "border-brand-500 bg-brand-50/50" : "border-ink-200 bg-white/60"
+        dragOver
+          ? "border-brand-500 bg-brand-50/50 dark:bg-brand-500/10"
+          : "border-ink-200 bg-surface/60"
       } min-w-[200px]`}
       onDragOver={handleDragOver}
       onDragLeave={() => setDragOver(false)}
@@ -847,7 +849,7 @@ function NewTaskModal({
           </Field>
         </div>
         {err && (
-          <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
             {err}
           </div>
         )}

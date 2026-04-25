@@ -7,6 +7,25 @@
     <title>UX Project Tracker</title>
     <link rel="preconnect" href="https://rsms.me/" />
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <script>
+      // Apply persisted theme preference before any styles render so the
+      // initial paint matches the user's last choice. Runs synchronously
+      // so there's no flash of light theme for dark-mode users on
+      // reload. ThemeProvider in React keeps this in sync at runtime.
+      (function () {
+        try {
+          var stored = localStorage.getItem("ui:theme");
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var wantDark =
+            stored === "dark" || (stored !== "light" && prefersDark);
+          if (wantDark) document.documentElement.classList.add("dark");
+        } catch (e) {
+          /* localStorage blocked — render light */
+        }
+      })();
+    </script>
   </head>
   <body class="bg-ink-50 text-ink-900 antialiased">
     <div id="root"></div>

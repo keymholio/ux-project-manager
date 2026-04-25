@@ -1,11 +1,21 @@
-import { KanbanSquare, LayoutDashboard, LogOut, FolderKanban, Users } from "lucide-react";
+import {
+  KanbanSquare,
+  LayoutDashboard,
+  LogOut,
+  FolderKanban,
+  Moon,
+  Sun,
+  Users,
+} from "lucide-react";
 import { type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 import { Avatar } from "./ui";
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { profile, signOut, isManager } = useAuth();
+  const { resolved, toggle } = useTheme();
 
   // Admin link appears only for managers. Everyone else gets the same
   // three-item nav they had before — the route is also guarded on the
@@ -23,7 +33,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-screen w-screen overflow-hidden">
       {/* Sidebar */}
-      <aside className="flex w-60 flex-shrink-0 flex-col border-r border-ink-200 bg-white">
+      <aside className="flex w-60 flex-shrink-0 flex-col border-r border-ink-200 bg-surface">
         <div className="flex items-center gap-2 px-4 py-4">
           <div className="h-8 w-8 rounded-md bg-brand-600 text-white flex items-center justify-center font-bold">
             UX
@@ -45,7 +55,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               className={({ isActive }) =>
                 `flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${
                   isActive
-                    ? "bg-brand-50 text-brand-700"
+                    ? "bg-brand-100 text-brand-700 dark:bg-brand-500/25 dark:text-brand-100"
                     : "text-ink-700 hover:bg-ink-100 hover:text-ink-900"
                 }`
               }
@@ -73,6 +83,22 @@ export default function Layout({ children }: { children: ReactNode }) {
                 </div>
               </div>
             </NavLink>
+            <button
+              onClick={toggle}
+              className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-900"
+              title={
+                resolved === "dark"
+                  ? "Switch to light mode"
+                  : "Switch to dark mode"
+              }
+              aria-label={
+                resolved === "dark"
+                  ? "Switch to light mode"
+                  : "Switch to dark mode"
+              }
+            >
+              {resolved === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
             <button
               onClick={signOut}
               className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-900"

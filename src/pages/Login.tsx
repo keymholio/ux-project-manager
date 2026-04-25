@@ -104,7 +104,7 @@ export default function Login() {
               />
             </div>
             {error && (
-              <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
                 {error}
               </div>
             )}
@@ -137,12 +137,12 @@ export default function Login() {
               />
             </div>
             {error && (
-              <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
                 {error}
               </div>
             )}
             {info && (
-              <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
                 {info}
               </div>
             )}

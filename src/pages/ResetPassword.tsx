@@ -50,7 +50,7 @@ export default function ResetPassword() {
 
         {done ? (
           <div className="card p-5 space-y-3 text-sm">
-            <div className="rounded-md bg-emerald-50 px-3 py-2 text-emerald-800">
+            <div className="rounded-md bg-emerald-50 px-3 py-2 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
               Password updated. You can close this tab or keep using the app.
             </div>
             <Button
@@ -96,7 +96,7 @@ export default function ResetPassword() {
               />
             </div>
             {error && (
-              <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
                 {error}
               </div>
             )}

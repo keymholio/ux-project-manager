@@ -247,7 +247,7 @@ export default function UserAdmin() {
       </header>
 
       {err && (
-        <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
           {err}
         </div>
       )}
@@ -361,7 +361,7 @@ export default function UserAdmin() {
                               className={`h-5 w-5 rounded-full border-2 transition ${
                                 selected
                                   ? "border-ink-900"
-                                  : "border-white hover:scale-110"
+                                  : "border-surface hover:scale-110"
                               }`}
                               style={{ background: c }}
                               title={c}

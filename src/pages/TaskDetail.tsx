@@ -159,7 +159,14 @@ export default function TaskDetail() {
       if (draft[key] !== task[key]) return true;
     }
     // Order-dependent JSON comparison — reordering counts as a change.
-    if (JSON.stringify(cleanLinks(draft.links)) !== JSON.stringify(task.links))
+    // Run BOTH sides through cleanLinks so the diff isn't driven by
+    // server-side artifacts (stale `title: ""` / `title: null` from older
+    // rows, or differing key insertion order from PostgREST). Without
+    // this normalization, pristine tasks load as already-dirty.
+    if (
+      JSON.stringify(cleanLinks(draft.links)) !==
+      JSON.stringify(cleanLinks(task.links))
+    )
       return true;
     return false;
   }, [draft, task]);
@@ -309,7 +316,7 @@ export default function TaskDetail() {
     : null;
 
   return (
-    <div className="p-6 max-w-4xl space-y-5">
+    <div className="p-6 space-y-5">
       <Breadcrumbs
         items={[
           { label: "Tasks", to: "/tasks" },
@@ -337,7 +344,7 @@ export default function TaskDetail() {
           </div>
           {canEdit ? (
             <input
-              className="mt-2 w-full bg-transparent text-2xl font-semibold text-ink-900 focus:outline-none focus:bg-white rounded px-1 -mx-1"
+              className="mt-2 w-full bg-transparent text-2xl font-semibold text-ink-900 focus:outline-none focus:bg-surface rounded px-1 -mx-1"
               value={draft.title}
               onChange={(e) => setField("title", e.target.value)}
             />
@@ -362,7 +369,7 @@ export default function TaskDetail() {
             <Button
               onClick={deleteTask}
               icon={<Trash2 size={14} />}
-              className="text-rose-700 hover:bg-rose-50"
+              className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
             >
               Delete
             </Button>
@@ -370,7 +377,7 @@ export default function TaskDetail() {
         </div>
       </header>
       {err && (
-        <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
           {err}
         </div>
       )}

@@ -288,7 +288,7 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
                 <Link
                   key={s}
                   to={`/projects?status=${s}`}
-                  className="flex items-center gap-3 rounded text-sm hover:bg-ink-50 -mx-1 px-1 py-0.5 group"
+                  className="flex items-center gap-3 rounded text-sm hover:bg-ink-100 -mx-1 px-1 py-0.5 group"
                   title={`See ${PROJECT_STATUS_LABEL[s]} projects`}
                 >
                   <div className="w-32 text-ink-600 group-hover:text-ink-900">
@@ -328,7 +328,7 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
                   <li key={t.id} className="py-2">
                     <Link
                       to={`/tasks/${t.id}`}
-                      className="flex items-center gap-3 rounded hover:bg-ink-50 -mx-1 px-1"
+                      className="flex items-center gap-3 rounded hover:bg-ink-100 -mx-1 px-1"
                     >
                       <Avatar profile={a} size={24} />
                       <div className="flex-1 min-w-0">
@@ -471,7 +471,7 @@ function TaskList({
       <li key={t.id} className="py-2">
         <Link
           to={`/tasks/${t.id}`}
-          className="flex items-center gap-3 rounded hover:bg-ink-50 -mx-1 px-1"
+          className="flex items-center gap-3 rounded hover:bg-ink-100 -mx-1 px-1"
         >
           <Avatar profile={a} size={24} />
           <div className="flex-1 min-w-0">

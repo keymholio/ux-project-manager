@@ -126,7 +126,7 @@ export function ProjectCombobox({
       {open && (
         <ul
           role="listbox"
-          className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md border border-ink-200 bg-white py-1 shadow-lg"
+          className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md border border-ink-200 bg-surface py-1 shadow-lg"
         >
           {options.length === 0 ? (
             <li className="px-3 py-1.5 text-sm text-ink-500">No matches</li>
@@ -148,7 +148,7 @@ export function ProjectCombobox({
                   }}
                   className={`cursor-pointer px-3 py-1.5 text-sm ${
                     isActive
-                      ? "bg-brand-50 text-brand-700"
+                      ? "bg-brand-100 text-brand-700 dark:bg-brand-500/25 dark:text-brand-100"
                       : "text-ink-900 hover:bg-ink-100"
                   } ${isSelected ? "font-medium" : ""}`}
                 >

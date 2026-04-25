@@ -720,7 +720,7 @@ export default function Projects() {
                       <Link
                         key={`${group.key}-${p.id}`}
                         to={`/projects/${p.id}`}
-                        className="flex items-center gap-3 px-4 py-3 hover:bg-ink-50 transition"
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-ink-100 transition"
                       >
                         {/* Short ID — fixed-width so rows align. Same Jira-style
                             identifier surfaced in the breadcrumb on the detail
@@ -1226,7 +1226,7 @@ function NewProjectModal({
           </div>
         </Field>
         {err && (
-          <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
             {err}
           </div>
         )}
