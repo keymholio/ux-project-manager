@@ -548,6 +548,34 @@ function TaskCard({
   const [dropIndicator, setDropIndicator] = useState<
     "before" | "after" | null
   >(null);
+  // True whenever ANY card on the board is being dragged. Used to suppress
+  // the per-card hover styling — without this, every card the cursor
+  // crosses during a drag flashes a hover border, which reads as "those
+  // cards are being highlighted" even though nothing's happening to them.
+  const [dragInProgress, setDragInProgress] = useState(false);
+
+  // Document-level drag listeners. Each TaskCard subscribes — when any
+  // card starts/ends a drag, every card flips its dragInProgress flag.
+  // dragend AND drop both clear local dropIndicator state as a safety net:
+  // the dragleave-based clear in handleDragLeave depends on the browser
+  // firing dragleave reliably, which it doesn't always do (especially on
+  // fast swipes or when the cursor exits the column boundary). Listening
+  // to the global drag terminus guarantees nothing stays stuck.
+  useEffect(() => {
+    const onDragStartAny = () => setDragInProgress(true);
+    const onDragEndOrDrop = () => {
+      setDragInProgress(false);
+      setDropIndicator(null);
+    };
+    document.addEventListener("dragstart", onDragStartAny);
+    document.addEventListener("dragend", onDragEndOrDrop);
+    document.addEventListener("drop", onDragEndOrDrop);
+    return () => {
+      document.removeEventListener("dragstart", onDragStartAny);
+      document.removeEventListener("dragend", onDragEndOrDrop);
+      document.removeEventListener("drop", onDragEndOrDrop);
+    };
+  }, []);
 
   const assignee = profiles.find((p) => p.id === task.assignee_id) ?? null;
   const project = projects.find((p) => p.id === task.project_id) ?? null;
@@ -624,6 +652,15 @@ function TaskCard({
           setTimeout(() => {
             draggingRef.current = false;
           }, 0);
+          // Restore focus to the dragged card. HTML5 DnD has inconsistent
+          // focus behavior across browsers — Chrome blurs the source at
+          // some point during the gesture and post-drop focus typically
+          // lands on whatever element the pointer happens to be over
+          // (often a neighboring card), not the one we just moved. The
+          // node is still mounted and now lives at its new position, so
+          // focusing it directly puts the visible focus ring on the
+          // card the user actually dropped.
+          cardRef.current?.focus({ preventScroll: true });
         }}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -638,7 +675,9 @@ function TaskCard({
             navigate(`/tasks/${task.id}`);
           }
         }}
-        className="card p-3 hover:border-brand-500 cursor-grab active:cursor-grabbing block select-none"
+        className={`card p-3 cursor-grab active:cursor-grabbing block select-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-50 ${
+          dragInProgress ? "" : "hover:border-ink-400"
+        }`}
       >
         {/* Top row: project name (left) + priority (right). Project name
             takes the ID's old slot; the per-tool badges it used to carry
