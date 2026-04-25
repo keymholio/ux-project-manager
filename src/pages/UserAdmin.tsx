@@ -230,7 +230,7 @@ export default function UserAdmin() {
   };
 
   return (
-    <div className="p-6 max-w-5xl space-y-5">
+    <div className="p-4 sm:p-6 max-w-5xl space-y-5">
       <Breadcrumbs items={[{ label: "Users", current: true }]} />
 
       <header className="flex items-start justify-between gap-4">
@@ -252,8 +252,8 @@ export default function UserAdmin() {
         </div>
       )}
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="card overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
             <tr>
               <th className="px-3 py-2 text-left font-medium">User</th>

@@ -320,13 +320,10 @@ export default function TaskBoard() {
     );
 
   return (
-    <div className="p-6 space-y-4 h-full flex flex-col">
+    <div className="p-4 sm:p-6 space-y-4 h-full flex flex-col">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Tasks</h1>
-          <p className="text-sm text-ink-500">
-            Drag a card between columns to update its status.
-          </p>
         </div>
         <Button
           variant="primary"

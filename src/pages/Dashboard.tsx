@@ -153,7 +153,7 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
     .slice(0, 8);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <header>
         <h1 className="text-xl font-semibold text-ink-900">Dashboard</h1>
         <p className="text-sm text-ink-500">
@@ -383,7 +383,7 @@ function DesignerDashboard({
   const rest = mine.filter((t) => !today.includes(t) && !overdue.includes(t));
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <header>
         <h1 className="text-xl font-semibold text-ink-900">Hi there.</h1>
         <p className="text-sm text-ink-500">

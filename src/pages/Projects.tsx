@@ -499,20 +499,19 @@ export default function Projects() {
   if (err) return <div className="p-6 text-rose-700">Error: {err}</div>;
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-4 sm:p-6 space-y-4">
       <header className="flex items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Projects</h1>
-          <p className="text-sm text-ink-500">
-            Create, assign, and track projects across the team.
-          </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Group-by axis. Kept next to the New project button instead of
-              down with the filters because changing the grouping lens is
-              closer in spirit to a view action than a filter. */}
+          {/* Group-by axis. On md+ it sits next to the New project button —
+              changing the grouping lens is closer in spirit to a view
+              action than a filter, so it earns the header slot. On mobile
+              the header gets crowded, so we hide this copy and render an
+              identical select inside the filter row below. */}
           <select
-            className="input w-auto"
+            className="input w-auto hidden md:block"
             value={groupBy}
             onChange={(e) => setGroupBy(e.target.value as GroupBy)}
             aria-label="Group by"
@@ -621,6 +620,24 @@ export default function Projects() {
               </option>
             ))}
         </select>
+        {/* Mobile-only copy of the Group by select. Hidden at md+ where
+            the header version is visible — keeps the header uncluttered
+            on small screens while still putting the control within easy
+            reach next to the rest of the filter chrome. */}
+        <select
+          className="input w-auto md:hidden"
+          value={groupBy}
+          onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+          aria-label="Group by"
+        >
+          {(Object.keys(GROUP_BY_LABEL) as GroupBy[]).map((g) => (
+            <option key={g} value={g}>
+              {g === "none"
+                ? GROUP_BY_LABEL[g]
+                : `Group by ${GROUP_BY_LABEL[g].toLowerCase()}`}
+            </option>
+          ))}
+        </select>
         {/* Live total. The reference number ("Y") depends on the status
             filter: on "All statuses" we show the grand total, otherwise we
             anchor on active projects (everything except Backlog and Done)
@@ -646,7 +663,18 @@ export default function Projects() {
           hint="Clear filters or create a new project."
         />
       ) : (
-        <div className="card overflow-hidden">
+        <div className="card overflow-x-auto">
+          {/* min-w on the inner wrapper keeps the column layout from
+              squishing on narrow viewports — instead the whole grid
+              scrolls horizontally as a unit so header and rows stay
+              aligned. Below the md breakpoint the user can swipe to see
+              the right-hand columns.
+              The 1000px floor is calibrated to give the flex-1 Project
+              column a comfortable share: fixed columns (ID 56 + Category
+              176 + Status 128 + Assigned 160 + Links 160) plus 5 gap-3
+              spacers (~60) leave roughly 260px for the project name,
+              which is enough to fit most names without truncation. */}
+          <div className="min-w-[1000px]">
           {/* Header row. Widths here must match the data rows below so the
               columns line up. Order: ID → Project → Category → Status →
               Assigned to → Links. Due and Priority used to live here — they're
@@ -821,6 +849,7 @@ export default function Projects() {
                 </div>
               </div>
             ))}
+          </div>
           </div>
         </div>
       )}
