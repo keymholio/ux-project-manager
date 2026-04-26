@@ -62,10 +62,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // data-attribute because Tailwind's darkMode: 'class' looks for `.dark`
   // on an ancestor of the rendered tree. The root element is the safest
   // place — it covers portals, modals, and the body itself.
+  //
+  // We also keep <meta name="theme-color"> in sync with the resolved
+  // theme. iOS Safari paints the status bar (time/battery) and the URL
+  // bar in this color; without it they fall back to a neutral gray that
+  // looks disconnected from the app surface. Values match the --surface
+  // CSS variable in src/index.css for both modes.
   useEffect(() => {
     const root = document.documentElement;
     if (resolved === "dark") root.classList.add("dark");
     else root.classList.remove("dark");
+    const meta = document.querySelector<HTMLMetaElement>(
+      'meta[name="theme-color"]',
+    );
+    if (meta) {
+      meta.setAttribute("content", resolved === "dark" ? "#1a1a30" : "#ffffff");
+    }
   }, [resolved]);
 
   // Keep the resolved theme in sync with the OS when preference is
