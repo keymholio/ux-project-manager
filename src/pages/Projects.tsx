@@ -499,7 +499,7 @@ export default function Projects() {
   if (err) return <div className="p-6 text-rose-700">Error: {err}</div>;
 
   return (
-    <div className="p-4 sm:p-6 space-y-4">
+    <div className="p-4 sm:p-6 pb-20 space-y-4">
       <header className="flex items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Projects</h1>

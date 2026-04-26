@@ -230,7 +230,7 @@ export default function UserAdmin() {
   };
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl space-y-5">
+    <div className="p-4 sm:p-6 pb-20 max-w-5xl space-y-5">
       <Breadcrumbs items={[{ label: "Users", current: true }]} />
 
       <header className="flex items-start justify-between gap-4">

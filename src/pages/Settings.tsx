@@ -91,7 +91,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-6">
+    <div className="mx-auto max-w-2xl p-4 sm:p-6 pb-20">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-ink-900">Your profile</h1>
         <p className="mt-1 text-sm text-ink-500">

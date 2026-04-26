@@ -400,6 +400,15 @@ export default function TaskBoard() {
             className="grid gap-3 h-full min-w-[880px]"
             style={{
               gridTemplateColumns: `repeat(${TASK_STATUS_ORDER.length}, minmax(0, 1fr))`,
+              // Single row that claims the full grid height. Without an
+              // explicit row template, the row sizes to its tallest item
+              // (the column with the most cards), the page scrolls
+              // instead of the columns, and the column headers scroll
+              // out of view with everything else. minmax(0, 1fr) gives
+              // each column a definite height to fill, which is what
+              // lets the cards container inside scroll independently
+              // and keeps the column header locked at the top.
+              gridTemplateRows: "minmax(0, 1fr)",
             }}
           >
             {TASK_STATUS_ORDER.map((s) => (
@@ -475,12 +484,16 @@ function Column({
         dragOver
           ? "border-brand-500 bg-brand-50/50 dark:bg-brand-500/10"
           : "border-ink-200 bg-surface/60"
-      } min-w-[200px]`}
+      } min-w-[200px] min-h-0`}
       onDragOver={handleDragOver}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
     >
-      <div className="flex items-center justify-between border-b border-ink-200 px-3 py-2">
+      {/* Column header. flex-shrink-0 keeps it from being squeezed when
+          the cards container below grows into available space, so the
+          header reads as a fixed strip at the top of the column even as
+          the cards scroll independently underneath. */}
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-ink-200 px-3 py-2">
         <div
           className="text-xs font-semibold uppercase tracking-wide text-ink-600"
           title={
@@ -498,7 +511,12 @@ function Column({
         </div>
         <span className="text-xs font-medium text-ink-500">{tasks.length}</span>
       </div>
-      <div className="flex flex-col gap-2 p-2 overflow-y-auto">
+      {/* Scrollable cards container. flex-1 takes the remaining height
+          inside the column; min-h-0 is the flex idiom that lets a
+          flex item shrink below its content size — without it the
+          overflow-y-auto can't kick in because the container would
+          rather expand than scroll. */}
+      <div className="flex flex-1 flex-col gap-2 p-2 overflow-y-auto min-h-0">
         {tasks.map((t, i) => (
           <TaskCard
             key={t.id}

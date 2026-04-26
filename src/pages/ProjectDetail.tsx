@@ -460,7 +460,7 @@ export default function ProjectDetail() {
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   return (
-    <div className="p-4 sm:p-6 space-y-5">
+    <div className="p-4 sm:p-6 pb-20 space-y-5">
       <Breadcrumbs
         items={[
           { label: "Projects", to: "/projects" },
