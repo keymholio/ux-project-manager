@@ -1,13 +1,24 @@
-import { Check, ExternalLink, GripVertical, Plus, Trash2, X } from "lucide-react";
+import {
+  Check,
+  ExternalLink,
+  GripVertical,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
 import {
   Avatar,
+  AvatarStack,
   Breadcrumbs,
   Button,
   CategoryBadge,
+  LinkList,
   PriorityBadge,
+  ProjectStatusBadge,
   Spinner,
   TaskStatusBadge,
   formatDate,
@@ -177,6 +188,37 @@ export default function ProjectDetail() {
     setDraftLabelIds(labelIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
+
+  // View vs edit mode. Default to view so the page reads as a record on
+  // first paint instead of a wall of form fields, which is especially
+  // helpful on mobile. Entering edit mode re-seeds the draft from the
+  // current server snapshot so any realtime updates that arrived while
+  // the user was in view mode aren't shadowed by a stale draft.
+  const [mode, setMode] = useState<"view" | "edit">("view");
+  const isEditing = mode === "edit";
+
+  const enterEditMode = () => {
+    if (!project) return;
+    setDraft(project);
+    setDraftAssigneeIds(assigneeIds);
+    setDraftLabelIds(labelIds);
+    setErr(null);
+    setSavedAt(null);
+    setMode("edit");
+  };
+
+  const exitEditMode = () => {
+    // isDirty is computed below — the closure resolves it at call time.
+    if (isDirty && !confirm("Discard unsaved changes?")) return;
+    if (project) {
+      setDraft(project);
+      setDraftAssigneeIds(assigneeIds);
+      setDraftLabelIds(labelIds);
+    }
+    setErr(null);
+    setSavedAt(null);
+    setMode("view");
+  };
 
   const isDirty = useMemo(() => {
     if (!draft || !project) return false;
@@ -415,6 +457,9 @@ export default function ProjectDetail() {
     setLabelIds(draftLabelIds);
     setSaving(false);
     setSavedAt(Date.now());
+    // Successful save returns to view mode — the user has committed,
+    // further edits require explicitly re-entering edit mode.
+    setMode("view");
   };
 
   const discard = () => {
@@ -425,6 +470,7 @@ export default function ProjectDetail() {
     setDraftLabelIds(labelIds);
     setErr(null);
     setSavedAt(null);
+    setMode("view");
   };
 
   const deleteProject = async () => {
@@ -469,30 +515,60 @@ export default function ProjectDetail() {
       />
 
       <header className="flex items-start justify-between gap-4">
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <CategoryBadge category={draft.category} />
             <PriorityBadge priority={draft.priority} />
           </div>
-          <input
-            className="mt-2 w-full bg-transparent text-2xl font-semibold text-ink-900 focus:outline-none focus:bg-surface rounded px-1 -mx-1"
-            value={draft.name}
-            onChange={(e) => setField("name", e.target.value)}
-          />
+          {isEditing ? (
+            <input
+              className="mt-2 w-full bg-transparent text-2xl font-semibold text-ink-900 focus:outline-none focus:bg-surface rounded px-1 -mx-1"
+              value={draft.name}
+              onChange={(e) => setField("name", e.target.value)}
+            />
+          ) : (
+            <h1 className="mt-2 text-2xl font-semibold text-ink-900">
+              {draft.name}
+            </h1>
+          )}
         </div>
-        {/* Header-level action cluster: save controls on the left, delete
-            on the right. Putting Save next to Delete keeps everything the
-            user reaches for after editing in one place at the top of the
-            page, instead of making them scroll down to a separate
-            sticky bar. */}
-        <div className="flex items-center gap-2">
-          <HeaderSaveControls
-            isDirty={isDirty}
-            saving={saving}
-            savedAt={savedAt}
-            onSave={save}
-            onDiscard={discard}
-          />
+        {/* Header-level action cluster:
+            - View mode: Edit button (primary entry into edit mode) +
+              Delete (always available since project delete is open to
+              the team per migration 008).
+            - Edit mode: Cancel + Save (HeaderSaveControls renders Save
+              when there are changes) + Delete.
+            Same physical slot in both modes; only the contents swap. */}
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {mode === "view" && (
+            <Button
+              variant="primary"
+              icon={<Pencil size={14} />}
+              onClick={enterEditMode}
+            >
+              Edit
+            </Button>
+          )}
+          {mode === "edit" && (
+            <>
+              <Button onClick={exitEditMode} disabled={saving}>
+                Cancel
+              </Button>
+              <HeaderSaveControls
+                isDirty={isDirty}
+                saving={saving}
+                savedAt={savedAt}
+                onSave={save}
+                onDiscard={discard}
+              />
+            </>
+          )}
+          {mode === "view" && savedAt && (
+            <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+              <Check size={14} />
+              Saved
+            </span>
+          )}
           <Button
             onClick={deleteProject}
             icon={<Trash2 size={14} />}
@@ -511,51 +587,78 @@ export default function ProjectDetail() {
       {/* Meta strip */}
       <section className="card p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
         <Meta label="Status">
-          <select
-            className="input"
-            value={draft.status}
-            onChange={(e) => setField("status", e.target.value as ProjectStatus)}
-          >
-            {PROJECT_STATUS_ORDER.map((s) => (
-              <option key={s} value={s}>
-                {PROJECT_STATUS_LABEL[s]}
-              </option>
-            ))}
-          </select>
+          {isEditing ? (
+            <select
+              className="input"
+              value={draft.status}
+              onChange={(e) =>
+                setField("status", e.target.value as ProjectStatus)
+              }
+            >
+              {PROJECT_STATUS_ORDER.map((s) => (
+                <option key={s} value={s}>
+                  {PROJECT_STATUS_LABEL[s]}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <ProjectStatusBadge status={draft.status} />
+          )}
         </Meta>
         <Meta label="Category">
-          <select
-            className="input"
-            value={draft.category}
-            onChange={(e) =>
-              setField("category", e.target.value as ProjectCategory)
-            }
-          >
-            {(Object.keys(CATEGORY_LABEL) as ProjectCategory[]).map((c) => (
-              <option key={c} value={c}>
-                {CATEGORY_LABEL[c]}
-              </option>
-            ))}
-          </select>
+          {isEditing ? (
+            <select
+              className="input"
+              value={draft.category}
+              onChange={(e) =>
+                setField("category", e.target.value as ProjectCategory)
+              }
+            >
+              {(Object.keys(CATEGORY_LABEL) as ProjectCategory[]).map((c) => (
+                <option key={c} value={c}>
+                  {CATEGORY_LABEL[c]}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <CategoryBadge category={draft.category} />
+          )}
         </Meta>
         <Meta label="Priority">
-          <select
-            className="input"
-            value={draft.priority}
-            onChange={(e) => setField("priority", e.target.value as Priority)}
-          >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
+          {isEditing ? (
+            <select
+              className="input"
+              value={draft.priority}
+              onChange={(e) => setField("priority", e.target.value as Priority)}
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          ) : draft.priority === "high" ? (
+            <PriorityBadge priority={draft.priority} />
+          ) : (
+            // PriorityBadge intentionally renders nothing for low/medium —
+            // keep that quiet behavior in view mode by showing the label
+            // as plain text instead of an empty cell.
+            <span className="text-sm capitalize text-ink-900">
+              {draft.priority}
+            </span>
+          )}
         </Meta>
         <Meta label="Due date">
-          <input
-            className="input"
-            type="date"
-            value={draft.due_date ?? ""}
-            onChange={(e) => setField("due_date", e.target.value || null)}
-          />
+          {isEditing ? (
+            <input
+              className="input"
+              type="date"
+              value={draft.due_date ?? ""}
+              onChange={(e) => setField("due_date", e.target.value || null)}
+            />
+          ) : (
+            <span className="text-sm text-ink-900">
+              {formatDate(draft.due_date)}
+            </span>
+          )}
         </Meta>
         {/* Only surfaces once the server has stamped completed_at (either via
             the projects_complete trigger or on insert). Read from `project`
@@ -572,26 +675,71 @@ export default function ProjectDetail() {
       {/* Description */}
       <section className="card p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-900">Description</h2>
-        <textarea
-          className="input"
-          rows={3}
-          value={draft.description ?? ""}
-          onChange={(e) => setField("description", e.target.value || null)}
-          placeholder="Add a brief description or notes."
-        />
+        {isEditing ? (
+          <textarea
+            className="input"
+            rows={3}
+            value={draft.description ?? ""}
+            onChange={(e) => setField("description", e.target.value || null)}
+            placeholder="Add a brief description or notes."
+          />
+        ) : (
+          <p className="whitespace-pre-wrap text-sm text-ink-700">
+            {draft.description?.trim() || "—"}
+          </p>
+        )}
       </section>
 
       {/* Labels */}
-      <LabelsEditor
-        labels={labels}
-        selectedIds={draftLabelIds}
-        onToggle={toggleLabel}
-        onCreate={createLabel}
-      />
+      {isEditing ? (
+        <LabelsEditor
+          labels={labels}
+          selectedIds={draftLabelIds}
+          onToggle={toggleLabel}
+          onCreate={createLabel}
+        />
+      ) : (
+        <section className="card p-4">
+          <h2 className="mb-2 text-sm font-semibold text-ink-900">Labels</h2>
+          {(() => {
+            // View mode renders the same chips the editor uses for selected
+            // labels, but without the × remove buttons. Reading from the
+            // server snapshot (labelIds) rather than the draft so a user
+            // who half-edited and then clicked Cancel sees the canonical
+            // state — though in practice the two are equal in view mode.
+            const applied = labelIds
+              .map((id) => labels.find((l) => l.id === id))
+              .filter((x): x is Label => !!x);
+            if (applied.length === 0) {
+              return <p className="text-xs text-ink-500">No labels.</p>;
+            }
+            return (
+              <div className="flex flex-wrap gap-2">
+                {applied.map((l) => (
+                  <span
+                    key={l.id}
+                    className="chip text-white"
+                    style={{ background: l.color }}
+                  >
+                    {l.name}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
+        </section>
+      )}
 
       {/* Links */}
       <section className="card p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-900">Links</h2>
+        {!isEditing ? (
+          draft.links.length === 0 ? (
+            <p className="text-xs text-ink-500">No links.</p>
+          ) : (
+            <LinkList links={draft.links} />
+          )
+        ) : (
         <div className="space-y-2">
           {draft.links.length === 0 && (
             <p className="text-xs text-ink-500">
@@ -744,11 +892,13 @@ export default function ProjectDetail() {
             Add link
           </button>
         </div>
+        )}
       </section>
 
       {/* Assignees */}
       <section className="card p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-900">Designers</h2>
+        {isEditing ? (
         <div className="flex flex-wrap gap-2">
           {team.map((d) => {
             const on = draftAssigneeIds.includes(d.id);
@@ -766,6 +916,29 @@ export default function ProjectDetail() {
             );
           })}
         </div>
+        ) : (() => {
+          // View mode renders the assigned designers as an avatar stack
+          // with names. Reads from the server snapshot (assigneeIds) so
+          // it always reflects the persisted state, not a half-edited
+          // draft. Falls back to a "no designers assigned" hint when the
+          // project hasn't been staffed yet.
+          const assigned = assigneeIds
+            .map((id) => team.find((p) => p.id === id))
+            .filter((x): x is Profile => !!x);
+          if (assigned.length === 0) {
+            return (
+              <p className="text-xs text-ink-500">No designers assigned.</p>
+            );
+          }
+          return (
+            <div className="flex items-center gap-3">
+              <AvatarStack profiles={assigned} size={28} />
+              <span className="text-sm text-ink-700">
+                {assigned.map((p) => p.full_name).join(", ")}
+              </span>
+            </div>
+          );
+        })()}
       </section>
 
       {/* Tasks on this project */}
@@ -832,16 +1005,16 @@ function Meta({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-// Inline save controls rendered in the detail header, next to the Delete
-// button. Only shows something when there's state to report — unsaved
-// edits (Discard / Save buttons) or a just-finished save (green "Saved"
-// confirmation). Errors surface separately as a banner below the header.
+// Save button rendered in the detail header during edit mode. Cancel
+// lives outside this component (always visible in edit mode), and the
+// post-save "Saved" tick is rendered alongside in view mode — by then we
+// have already flipped back. onDiscard / savedAt are accepted but not
+// used here today; left in the signature so the call sites in
+// ProjectDetail and TaskDetail can keep parity.
 function HeaderSaveControls({
   isDirty,
   saving,
-  savedAt,
   onSave,
-  onDiscard,
 }: {
   isDirty: boolean;
   saving: boolean;
@@ -849,28 +1022,12 @@ function HeaderSaveControls({
   onSave: () => void;
   onDiscard: () => void;
 }) {
-  if (isDirty) {
-    return (
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-ink-500">Unsaved</span>
-        <Button onClick={onDiscard} disabled={saving}>
-          Discard
-        </Button>
-        <Button variant="primary" onClick={onSave} disabled={saving}>
-          {saving ? <Spinner /> : "Save"}
-        </Button>
-      </div>
-    );
-  }
-  if (savedAt) {
-    return (
-      <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700">
-        <Check size={14} />
-        Saved
-      </span>
-    );
-  }
-  return null;
+  if (!isDirty) return null;
+  return (
+    <Button variant="primary" onClick={onSave} disabled={saving}>
+      {saving ? <Spinner /> : "Save"}
+    </Button>
+  );
 }
 
 // -----------------------------------------------------------------------------

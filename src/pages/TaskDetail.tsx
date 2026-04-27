@@ -1,4 +1,11 @@
-import { Check, ExternalLink, GripVertical, Plus, Trash2 } from "lucide-react";
+import {
+  Check,
+  ExternalLink,
+  GripVertical,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
@@ -151,7 +158,40 @@ export default function TaskDetail() {
     setDraft(task);
   }, [task]);
 
-  const canEdit = isManager || task?.assignee_id === profile?.id;
+  // Edit gating used to be `isManager || assignee_id === profile.id` so
+  // designers could only edit tasks assigned to them. Migration 012
+  // loosened the tasks: update RLS to all authenticated users — anyone
+  // on the team can now edit any task — so the UI gate is just "is
+  // signed in," which the AuthProvider has already guaranteed at the
+  // route level. Delete stays manager-only (gated separately below).
+  const canEdit = true;
+
+  // View vs edit mode. Default to view so the page reads as a record on
+  // first paint instead of a form, especially on mobile. Toggling to
+  // edit re-seeds the draft from the latest server snapshot so realtime
+  // updates that arrived while in view mode aren't shadowed by a stale
+  // draft.
+  const [mode, setMode] = useState<"view" | "edit">("view");
+  const isEditing = canEdit && mode === "edit";
+
+  const enterEditMode = () => {
+    if (!task) return;
+    setDraft(task);
+    setErr(null);
+    setSavedAt(null);
+    setMode("edit");
+  };
+
+  const exitEditMode = () => {
+    // isDirty is defined below in this component — the forward reference
+    // is fine because exitEditMode is a closure that resolves bindings at
+    // call time. Prompts only when the user has actual changes to lose.
+    if (isDirty && !confirm("Discard unsaved changes?")) return;
+    if (task) setDraft(task);
+    setErr(null);
+    setSavedAt(null);
+    setMode("view");
+  };
 
   const isDirty = useMemo(() => {
     if (!draft || !task) return false;
@@ -189,7 +229,7 @@ export default function TaskDetail() {
   }, [savedAt]);
 
   const setField = <K extends EditableField>(field: K, value: Task[K]) => {
-    if (!draft || !canEdit) return;
+    if (!draft || !isEditing) return;
     setDraft({ ...draft, [field]: value });
     setSavedAt(null);
   };
@@ -257,6 +297,11 @@ export default function TaskDetail() {
     setDraft({ ...draft, ...diff, links: cleanedLinks } as Task);
     setSaving(false);
     setSavedAt(Date.now());
+    // A successful save returns the page to view mode — the user has
+    // committed; further edits require explicitly entering edit mode
+    // again. Keeps the post-save state matching what the rest of the
+    // team will see.
+    setMode("view");
   };
 
   const discard = () => {
@@ -265,6 +310,7 @@ export default function TaskDetail() {
     setDraft(task);
     setErr(null);
     setSavedAt(null);
+    setMode("view");
   };
 
   const deleteTask = async () => {
@@ -302,13 +348,21 @@ export default function TaskDetail() {
   // Scroll the Project field into view and try to focus the combobox input.
   // Used when a task has no project and the user clicks the "Add project"
   // crumb in the breadcrumb — it gives them a direct path from that pointer
-  // down to the field they need to fill in.
+  // down to the field they need to fill in. Enters edit mode first if
+  // we're in view mode, since the combobox only renders while editing;
+  // the setTimeout(0) defers the focus call until after React commits the
+  // edit-mode JSX so the input element actually exists when we look it up.
   const focusProjectField = () => {
-    const el = projectFieldRef.current;
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    const input = el.querySelector<HTMLInputElement>('input[role="combobox"], input');
-    input?.focus();
+    if (mode !== "edit") enterEditMode();
+    setTimeout(() => {
+      const el = projectFieldRef.current;
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      const input = el.querySelector<HTMLInputElement>(
+        'input[role="combobox"], input',
+      );
+      input?.focus();
+    }, 0);
   };
 
   const projectForTask = draft.project_id
@@ -325,7 +379,7 @@ export default function TaskDetail() {
                 label: fmtProjectId(projectForTask.short_id),
                 to: `/projects/${projectForTask.id}`,
               }
-            : isManager
+            : canEdit
               ? {
                   label: "Add project",
                   onClick: focusProjectField,
@@ -342,7 +396,7 @@ export default function TaskDetail() {
             <PriorityBadge priority={draft.priority} />
             <TaskStatusBadge status={draft.status} />
           </div>
-          {canEdit ? (
+          {isEditing ? (
             <input
               className="mt-2 w-full bg-transparent text-2xl font-semibold text-ink-900 focus:outline-none focus:bg-surface rounded px-1 -mx-1"
               value={draft.title}
@@ -352,19 +406,45 @@ export default function TaskDetail() {
             <h1 className="mt-2 text-2xl font-semibold text-ink-900">{draft.title}</h1>
           )}
         </div>
-        {/* Header-level action cluster: save controls on the left, delete
-            (manager-only) on the right. Putting Save next to Delete keeps
-            everything the user reaches for after editing in one place at
-            the top of the page, instead of making them scroll down to a
-            separate sticky bar. */}
-        <div className="flex items-center gap-2">
-          <HeaderSaveControls
-            isDirty={isDirty}
-            saving={saving}
-            savedAt={savedAt}
-            onSave={save}
-            onDiscard={discard}
-          />
+        {/* Header-level action cluster:
+            - View mode: Edit button (primary entry into edit mode) +
+              Delete (manager-only).
+            - Edit mode: Cancel + Save (via HeaderSaveControls) + Delete.
+            Keeping the same physical slot avoids layout shift between
+            modes; just the contents swap. */}
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {mode === "view" && canEdit && (
+            <Button
+              variant="primary"
+              icon={<Pencil size={14} />}
+              onClick={enterEditMode}
+            >
+              Edit
+            </Button>
+          )}
+          {mode === "edit" && (
+            <>
+              <Button onClick={exitEditMode} disabled={saving}>
+                Cancel
+              </Button>
+              <HeaderSaveControls
+                isDirty={isDirty}
+                saving={saving}
+                savedAt={savedAt}
+                onSave={save}
+                onDiscard={discard}
+              />
+            </>
+          )}
+          {/* "Saved" confirmation surfaces in view mode too — the user
+              just got bounced back here from a successful save and we
+              want them to see the green tick before it fades. */}
+          {mode === "view" && savedAt && (
+            <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+              <Check size={14} />
+              Saved
+            </span>
+          )}
           {isManager && (
             <Button
               onClick={deleteTask}
@@ -385,7 +465,7 @@ export default function TaskDetail() {
       {/* Meta strip */}
       <section className="card p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
         <Meta label="Status">
-          {canEdit ? (
+          {isEditing ? (
             <select
               className="input"
               value={draft.status}
@@ -402,7 +482,7 @@ export default function TaskDetail() {
           )}
         </Meta>
         <Meta label="Assignee">
-          {isManager ? (
+          {isEditing ? (
             <select
               className="input"
               value={draft.assignee_id ?? ""}
@@ -426,7 +506,7 @@ export default function TaskDetail() {
           )}
         </Meta>
         <Meta label="Due date">
-          {canEdit ? (
+          {isEditing ? (
             <input
               className="input"
               type="date"
@@ -438,7 +518,7 @@ export default function TaskDetail() {
           )}
         </Meta>
         <Meta label="Priority">
-          {canEdit ? (
+          {isEditing ? (
             <select
               className="input"
               value={draft.priority}
@@ -456,7 +536,7 @@ export default function TaskDetail() {
         </Meta>
         <div ref={projectFieldRef}>
           <Meta label="Project">
-            {isManager ? (
+            {isEditing ? (
               // "" is our null sentinel — the DB stores null when no project is
               // assigned, and the combobox only deals in string values.
               <ProjectCombobox
@@ -484,7 +564,7 @@ export default function TaskDetail() {
       {/* Description */}
       <section className="card p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-900">Description</h2>
-        {canEdit ? (
+        {isEditing ? (
           <textarea
             className="input"
             rows={4}
@@ -503,7 +583,7 @@ export default function TaskDetail() {
           set of types, drag-to-reorder, click-through on saved URLs. */}
       <section className="card p-4">
         <h2 className="mb-2 text-sm font-semibold text-ink-900">Links</h2>
-        {canEdit ? (
+        {isEditing ? (
           <div className="space-y-2">
             {draft.links.length === 0 && (
               <p className="text-xs text-ink-500">
@@ -646,16 +726,19 @@ function Meta({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-// Inline save controls rendered in the detail header, next to the Delete
-// button. Only shows something when there's state to report — unsaved
-// edits (Discard / Save buttons) or a just-finished save (green "Saved"
-// confirmation). Errors surface separately as a banner below the header.
+// Save button rendered in the detail header during edit mode. Cancel
+// lives outside this component (always visible in edit mode), and the
+// post-save "Saved" tick is rendered alongside in view mode — by then we
+// have already flipped back. Kept as its own component because the
+// matching ProjectDetail header reuses the same shape.
+//
+// onDiscard / savedAt are accepted but not used here today — left in the
+// signature so the call sites in ProjectDetail and TaskDetail stay
+// identical and refactors don't need to track props in two places.
 function HeaderSaveControls({
   isDirty,
   saving,
-  savedAt,
   onSave,
-  onDiscard,
 }: {
   isDirty: boolean;
   saving: boolean;
@@ -663,26 +746,10 @@ function HeaderSaveControls({
   onSave: () => void;
   onDiscard: () => void;
 }) {
-  if (isDirty) {
-    return (
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-ink-500">Unsaved</span>
-        <Button onClick={onDiscard} disabled={saving}>
-          Discard
-        </Button>
-        <Button variant="primary" onClick={onSave} disabled={saving}>
-          {saving ? <Spinner /> : "Save"}
-        </Button>
-      </div>
-    );
-  }
-  if (savedAt) {
-    return (
-      <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700">
-        <Check size={14} />
-        Saved
-      </span>
-    );
-  }
-  return null;
+  if (!isDirty) return null;
+  return (
+    <Button variant="primary" onClick={onSave} disabled={saving}>
+      {saving ? <Spinner /> : "Save"}
+    </Button>
+  );
 }
