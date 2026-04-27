@@ -89,7 +89,10 @@ type EditableField = (typeof EDITABLE_FIELDS)[number];
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
-  const { profile, isManager } = useAuth();
+  // `profile` was used to check assignee-based edit permissions before
+  // migration 012 opened up tasks: update to all authenticated users.
+  // Now we only need `isManager` for the Delete button gate.
+  const { isManager } = useAuth();
 
   // Server snapshot — what the DB last told us.
   const [task, setTask] = useState<Task | null>(null);
