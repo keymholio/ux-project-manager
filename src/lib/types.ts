@@ -13,6 +13,7 @@ export type ProjectCategory =
 
 export type ProjectStatus =
   | "backlog"
+  | "on_hold"
   | "discovery"
   | "in_progress"
   | "needs_review"
@@ -23,9 +24,11 @@ export type ProjectStatus =
 
 export type TaskStatus =
   | "backlog"
+  | "on_hold"
   | "on_deck"
   | "in_progress"
-  | "done";
+  | "done"
+  | "canceled";
 
 export type TaskType =
   | "design"
@@ -165,6 +168,7 @@ export interface Comment {
 // =============================================================================
 export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
   backlog: "Backlog",
+  on_hold: "On hold",
   discovery: "Discovery",
   in_progress: "In progress",
   needs_review: "Needs review",
@@ -176,6 +180,7 @@ export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
 
 export const PROJECT_STATUS_ORDER: ProjectStatus[] = [
   "backlog",
+  "on_hold",
   "discovery",
   "in_progress",
   "needs_review",
@@ -187,17 +192,55 @@ export const PROJECT_STATUS_ORDER: ProjectStatus[] = [
 
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: "Backlog",
+  on_hold: "On hold",
   on_deck: "On deck",
   in_progress: "In progress",
   done: "Done",
+  canceled: "Canceled",
 };
 
+// All task statuses in display order — used by the status select on the
+// task detail page and any other place that needs the full list.
 export const TASK_STATUS_ORDER: TaskStatus[] = [
+  "backlog",
+  "on_hold",
+  "on_deck",
+  "in_progress",
+  "done",
+  "canceled",
+];
+
+// Subset of statuses that get their own column on the kanban board.
+// on_hold and canceled aren't here — they share columns with their
+// parent state (Backlog and Done respectively) so the board stays
+// compact and parked statuses sit visually next to the active flow.
+export const TASK_BOARD_COLUMNS: TaskStatus[] = [
   "backlog",
   "on_deck",
   "in_progress",
   "done",
 ];
+
+// Returns true when a task with `status` belongs in the kanban column
+// labeled by `column`. Backlog accepts on_hold tasks; Done accepts
+// canceled tasks; everywhere else is a 1:1 match. Used by the board to
+// decide which cards live in each column, and by the drop handler to
+// know whether a drag is "within the same column" (just a reorder) or
+// "into a different column" (which also rewrites the status).
+export const tasksInColumn = (
+  column: TaskStatus,
+  status: TaskStatus,
+): boolean => {
+  if (column === "backlog") return status === "backlog" || status === "on_hold";
+  if (column === "done") return status === "done" || status === "canceled";
+  return status === column;
+};
+
+// "Active" task = anything that isn't a terminal state. Used by the
+// Dashboard for workload counts, overdue checks, and similar — canceled
+// tasks shouldn't pad those numbers any more than completed tasks do.
+export const isTaskActive = (status: TaskStatus): boolean =>
+  status !== "done" && status !== "canceled";
 
 export const CATEGORY_LABEL: Record<ProjectCategory, string> = {
   marketing: "Marketing",

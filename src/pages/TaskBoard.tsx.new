@@ -8,7 +8,6 @@ import {
   LinkList,
   PriorityBadge,
   Spinner,
-  TaskStatusBadge,
 } from "../components/ui";
 import NewTaskModal from "../components/NewTaskModal";
 import { ProjectCombobox } from "../components/ProjectCombobox";
@@ -16,10 +15,9 @@ import { useToast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
-  TASK_BOARD_COLUMNS,
   TASK_STATUS_LABEL,
+  TASK_STATUS_ORDER,
   fmtTaskId,
-  tasksInColumn,
   type Profile,
   type Project,
   type Task,
@@ -162,14 +160,7 @@ export default function TaskBoard() {
         } else if (t.project_id !== projectFilter) return false;
       }
       if (q && !t.title.toLowerCase().includes(q)) return false;
-      // The Done column shows both done AND canceled tasks (canceled
-      // sits inside the Done column on the board). Both age out on the
-      // same weekly cadence, anchored on completed_at — the trigger in
-      // migration 014 stamps that field for canceled too.
-      if (
-        (t.status === "done" || t.status === "canceled") &&
-        t.completed_at
-      ) {
+      if (t.status === "done" && t.completed_at) {
         if (new Date(t.completed_at).getTime() < startOfWeekMs) return false;
       }
       return true;
@@ -192,29 +183,14 @@ export default function TaskBoard() {
   // precision); integer columns would truncate midpoints.
   const onDrop = async (
     taskId: string,
-    column: TaskStatus,
+    status: TaskStatus,
     beforeTaskId: string | null,
   ) => {
     if (taskId === beforeTaskId) return; // dropped on self — no-op
-    // What status the dropped task should end up with: if it's already
-    // in a status that lives inside the target column (e.g. on_hold
-    // dragged inside Backlog, or canceled dragged inside Done) we keep
-    // its current status — the drag was just a reorder, not a status
-    // change. Otherwise the column's primary status wins, which matches
-    // the visual: dropping into "In progress" means "set this to
-    // in_progress", regardless of where it came from.
-    const draggedTask = tasks.find((t) => t.id === taskId);
-    const effectiveStatus: TaskStatus =
-      draggedTask && tasksInColumn(column, draggedTask.status)
-        ? draggedTask.status
-        : column;
     // Target column without the dragged card, sorted ascending so
-    // neighbor lookups by index line up with visual order. Filter by
-    // column membership (tasksInColumn) rather than direct status
-    // equality, otherwise on_hold/canceled siblings wouldn't be
-    // considered for the midpoint calculation.
+    // neighbor lookups by index line up with visual order.
     const colTasks = tasks
-      .filter((t) => tasksInColumn(column, t.status) && t.id !== taskId)
+      .filter((t) => t.status === status && t.id !== taskId)
       .sort((a, b) => a.position - b.position);
     // Where in the target column the dragged card should land. A missing
     // beforeTaskId (or one that vanished mid-drag) falls back to
@@ -253,15 +229,13 @@ export default function TaskBoard() {
       setTasks((prev) =>
         [...prev]
           .map((t) =>
-            t.id === taskId
-              ? { ...t, status: effectiveStatus, position: newPosition }
-              : t,
+            t.id === taskId ? { ...t, status, position: newPosition } : t,
           )
           .sort((a, b) => a.position - b.position),
       );
       const { error, data } = await supabase
         .from("tasks")
-        .update({ status: effectiveStatus, position: newPosition })
+        .update({ status, position: newPosition })
         .eq("id", taskId)
         .select();
       if (error) {
@@ -290,6 +264,7 @@ export default function TaskBoard() {
     // refresh from the server and let realtime reconcile. In practice
     // managers are the ones triggering this path, and for them all
     // UPDATEs succeed.
+    const draggedTask = tasks.find((t) => t.id === taskId);
     if (!draggedTask) return;
     const ordered = [...colTasks];
     ordered.splice(insertionIdx, 0, draggedTask);
@@ -308,11 +283,7 @@ export default function TaskBoard() {
           return {
             ...t,
             position: p,
-            // Only the dragged card may flip status here; on_hold /
-            // canceled siblings in the same column keep their status
-            // because effectiveStatus equals their existing status when
-            // they're already in the target column.
-            status: t.id === taskId ? effectiveStatus : t.status,
+            status: t.id === taskId ? status : t.status,
           };
         })
         .sort((a, b) => a.position - b.position),
@@ -323,7 +294,7 @@ export default function TaskBoard() {
         const payload: { position: number; status?: TaskStatus } = {
           position: r.position,
         };
-        if (r.id === taskId) payload.status = effectiveStatus;
+        if (r.id === taskId) payload.status = status;
         return supabase.from("tasks").update(payload).eq("id", r.id).select();
       }),
     );
@@ -418,16 +389,15 @@ export default function TaskBoard() {
         />
       ) : (
         <div className="flex-1 overflow-x-auto">
-          {/* Column count comes from TASK_BOARD_COLUMNS — a deliberate
-              subset of TASK_STATUS_ORDER. on_hold and canceled aren't
-              their own columns; they share Backlog and Done respectively
-              (see tasksInColumn helper). Adding/removing column statuses
-              there auto-rebalances this grid. min-w floor keeps columns
-              usable when the viewport is very narrow. */}
+          {/* Column count is derived from TASK_STATUS_ORDER so dropping
+              a status (migration 010 removed In review) automatically
+              rebalances the grid to fill the viewport instead of leaving
+              a gap where the old column used to be. min-w floor ensures
+              columns stay usable if the viewport is very narrow. */}
           <div
             className="grid gap-3 h-full min-w-[880px]"
             style={{
-              gridTemplateColumns: `repeat(${TASK_BOARD_COLUMNS.length}, minmax(0, 1fr))`,
+              gridTemplateColumns: `repeat(${TASK_STATUS_ORDER.length}, minmax(0, 1fr))`,
               // Single row that claims the full grid height. Without an
               // explicit row template, the row sizes to its tallest item
               // (the column with the most cards), the page scrolls
@@ -439,11 +409,11 @@ export default function TaskBoard() {
               gridTemplateRows: "minmax(0, 1fr)",
             }}
           >
-            {TASK_BOARD_COLUMNS.map((s) => (
+            {TASK_STATUS_ORDER.map((s) => (
               <Column
                 key={s}
                 status={s}
-                tasks={filtered.filter((t) => tasksInColumn(s, t.status))}
+                tasks={filtered.filter((t) => t.status === s)}
                 profiles={profiles}
                 projects={projects}
                 onDrop={onDrop}
@@ -622,15 +592,9 @@ function TaskCard({
 
   const assignee = profiles.find((p) => p.id === task.assignee_id) ?? null;
   const project = projects.find((p) => p.id === task.project_id) ?? null;
-  // "Parked" = a status that shares a column with a different primary
-  // (on_hold inside Backlog, canceled inside Done). These cards render
-  // dimmed and carry an explicit status chip so they're distinguishable
-  // from the column's primary tasks at a glance.
-  const isParked = task.status === "on_hold" || task.status === "canceled";
   const overdue =
     task.due_date &&
     task.status !== "done" &&
-    task.status !== "canceled" &&
     new Date(task.due_date) < new Date();
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -726,27 +690,15 @@ function TaskCard({
         }}
         className={`card p-3 cursor-grab active:cursor-grabbing block select-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-50 ${
           dragInProgress ? "" : "hover:border-ink-400"
-        } ${
-          // Parked cards (on_hold / canceled) dim so the eye skips past
-          // them when scanning a busy column. Hover lifts back to full
-          // opacity so the card reads clearly when the user actually
-          // points at it.
-          isParked ? "opacity-60 hover:opacity-100" : ""
         }`}
       >
-        {/* Top row: status chip for parked tasks + project name (left)
-            + priority (right). Parked statuses (on_hold / canceled) get
-            an explicit chip because the column header alone doesn't
-            disambiguate them — Backlog's chip says "On hold", Done's
-            says "Canceled". Active-status cards skip the chip since the
-            column header already labels them. */}
+        {/* Top row: project name (left) + priority (right). Project name
+            takes the ID's old slot; the per-tool badges it used to carry
+            are gone in favor of a unified links row below. */}
         <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1.5">
-            {isParked && <TaskStatusBadge status={task.status} />}
-            <span className="truncate text-xs text-ink-500">
-              {project ? project.name : "No project"}
-            </span>
-          </div>
+          <span className="truncate text-xs text-ink-500">
+            {project ? project.name : "No project"}
+          </span>
           <PriorityBadge priority={task.priority} />
         </div>
         <div className="mt-1.5 text-sm font-medium text-ink-900 line-clamp-3">

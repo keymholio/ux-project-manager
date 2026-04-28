@@ -332,9 +332,15 @@ export default function Projects() {
     const q = query.trim().toLowerCase();
     return projects.filter((p) => {
       if (statusFilter === "active") {
-        // "Active" is the default view: everything except the parked ends
-        // of the funnel. Backlog is still being scoped, Done is shipped.
-        if (p.status === "backlog" || p.status === "done") return false;
+        // "Active" is the default view: everything except parked statuses.
+        // Backlog is still being scoped, Done is shipped, On hold is
+        // explicitly paused — none belong in "what we're moving on now".
+        if (
+          p.status === "backlog" ||
+          p.status === "done" ||
+          p.status === "on_hold"
+        )
+          return false;
       } else if (statusFilter !== "all" && p.status !== statusFilter) {
         return false;
       }
@@ -371,8 +377,12 @@ export default function Projects() {
   // cares about as "how much is on our plate right now".
   const activeCount = useMemo(
     () =>
-      projects.filter((p) => p.status !== "backlog" && p.status !== "done")
-        .length,
+      projects.filter(
+        (p) =>
+          p.status !== "backlog" &&
+          p.status !== "done" &&
+          p.status !== "on_hold",
+      ).length,
     [projects],
   );
 
@@ -748,7 +758,16 @@ export default function Projects() {
                       <Link
                         key={`${group.key}-${p.id}`}
                         to={`/projects/${p.id}`}
-                        className="flex items-center gap-3 px-4 py-3 hover:bg-ink-100 transition"
+                        className={`flex items-center gap-3 px-4 py-3 hover:bg-ink-100 transition ${
+                          // On-hold rows render at reduced opacity so the
+                          // eye skips past them when scanning the list —
+                          // they're parked, not active work. Hover lifts
+                          // back to full opacity so the row reads clearly
+                          // when the user actually targets it.
+                          p.status === "on_hold"
+                            ? "opacity-50 hover:opacity-100"
+                            : ""
+                        }`}
                       >
                         {/* Short ID — fixed-width so rows align. Same Jira-style
                             identifier surfaced in the breadcrumb on the detail
@@ -873,7 +892,9 @@ export default function Projects() {
             // so the user actually sees what they just made.
             const hidden =
               (statusFilter === "active" &&
-                (created.status === "backlog" || created.status === "done")) ||
+                (created.status === "backlog" ||
+                  created.status === "done" ||
+                  created.status === "on_hold")) ||
               (statusFilter !== "active" &&
                 statusFilter !== "all" &&
                 statusFilter !== created.status);

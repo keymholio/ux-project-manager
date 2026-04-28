@@ -10,6 +10,8 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
+import NewTaskModal from "../components/NewTaskModal";
+import { useToast } from "../components/Toast";
 import {
   Avatar,
   AvatarStack,
@@ -102,6 +104,7 @@ const cleanLinks = (links: ProjectLink[]): ProjectLink[] =>
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
+  const toast = useToast();
 
   // Server snapshots — what the DB last told us.
   const [project, setProject] = useState<Project | null>(null);
@@ -125,6 +128,15 @@ export default function ProjectDetail() {
   // Save state for the sticky bar at the bottom of the page.
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // Toggle for the inline "Add task" modal in the Tasks section. The
+  // modal is the same NewTaskModal used on the TaskBoard, opened with
+  // the current project pre-selected and locked so the user can't
+  // accidentally create the task against a different project from this
+  // page. The realtime subscription already attached to `tasks` (filtered
+  // by project_id) refreshes the list the moment the insert lands, so we
+  // don't need to thread an onCreated handler back into the local state.
+  const [creatingTask, setCreatingTask] = useState(false);
 
   // Drag-to-reorder state for the Links editor. `dragIdx` is the row the
   // user grabbed; `overIdx` is the row we'd drop onto if they released
@@ -947,17 +959,20 @@ export default function ProjectDetail() {
           <h2 className="text-sm font-semibold text-ink-900">
             Tasks ({tasks.length})
           </h2>
-          <Link
-            to={`/tasks?project=${project.id}`}
-            className="text-xs text-brand-700 hover:underline inline-flex items-center gap-1"
+          {/* "Add task" opens the shared NewTaskModal here on the project
+              page itself rather than bouncing the user to the TaskBoard.
+              The project is pre-selected and locked, so the new task
+              automatically lands inside this section. */}
+          <Button
+            icon={<Plus size={14} />}
+            onClick={() => setCreatingTask(true)}
           >
-            <Plus size={12} />
-            New task on board
-          </Link>
+            Add task
+          </Button>
         </div>
         {tasks.length === 0 ? (
           <p className="text-sm text-ink-500">
-            No tasks yet. Open the Tasks board to add one.
+            No tasks yet. Click "Add task" to create one.
           </p>
         ) : (
           <ul className="divide-y divide-ink-100">
@@ -972,7 +987,16 @@ export default function ProjectDetail() {
                     <span className="w-12 flex-shrink-0 font-mono text-xs tabular-nums text-ink-400">
                       {fmtTaskId(t.short_id)}
                     </span>
-                    <Avatar profile={a} size={22} />
+                    {/* Assignee avatar + name. Spelling the name out (rather
+                        than just showing the avatar) makes the row scannable
+                        without relying on color/initials recognition,
+                        especially on mobile where the avatars are small. */}
+                    <div className="flex w-32 flex-shrink-0 items-center gap-1.5">
+                      <Avatar profile={a} size={22} />
+                      <span className="truncate text-xs text-ink-700">
+                        {a?.full_name ?? "Unassigned"}
+                      </span>
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="truncate text-sm font-medium text-ink-900">
                         {t.title}
@@ -992,6 +1016,31 @@ export default function ProjectDetail() {
 
       {/* Comments */}
       <CommentThread projectId={project.id} />
+
+      {creatingTask && (
+        <NewTaskModal
+          projects={[]}
+          profiles={profiles}
+          defaultProjectId={project.id}
+          lockProject
+          onClose={() => setCreatingTask(false)}
+          onCreated={(created) => {
+            // Optimistic insert: add the new task to the local list
+            // immediately so the user sees their task appear without
+            // waiting on realtime. The realtime subscription on
+            // `tasks` will echo this same row back shortly; the dedupe
+            // guard (`some` check on id) keeps it from being added a
+            // second time when the echo arrives. Without this, brand
+            // new tasks felt like nothing happened — there was a
+            // ~1-second silent delay before realtime caught up.
+            setTasks((prev) =>
+              prev.some((t) => t.id === created.id) ? prev : [...prev, created],
+            );
+            setCreatingTask(false);
+            toast(`Task "${created.title}" added`);
+          }}
+        />
+      )}
     </div>
   );
 }

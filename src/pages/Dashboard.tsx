@@ -21,6 +21,7 @@ import {
   PROJECT_STATUS_ORDER,
   PROJECT_STATUS_LABEL,
   TASK_STATUS_LABEL,
+  isTaskActive,
   type Profile,
   type Project,
   type Task,
@@ -133,7 +134,10 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
   const tasksByAssignee = useMemo(() => {
     const m = new Map<string, Task[]>();
     for (const t of tasks) {
-      if (t.status === "done") continue;
+      // Active = not in a terminal state (done OR canceled). Both
+      // should be excluded from workload counts since they're no
+      // longer being worked on.
+      if (!isTaskActive(t.status)) continue;
       const key = t.assignee_id ?? "unassigned";
       if (!m.has(key)) m.set(key, []);
       m.get(key)!.push(t);
@@ -149,7 +153,7 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
   }, [projects]);
 
   const upcoming = tasks
-    .filter((t) => t.status !== "done" && t.due_date)
+    .filter((t) => isTaskActive(t.status) && t.due_date)
     .slice(0, 8);
 
   return (
@@ -171,7 +175,7 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
         <Stat
           icon={<Clock size={18} />}
           label="Open tasks"
-          value={tasks.filter((t) => t.status !== "done").length}
+          value={tasks.filter((t) => isTaskActive(t.status)).length}
         />
         <Stat
           icon={<AlertCircle size={18} />}
@@ -179,7 +183,7 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
           value={
             tasks.filter(
               (t) =>
-                t.status !== "done" &&
+                isTaskActive(t.status) &&
                 t.due_date &&
                 new Date(t.due_date) < new Date(),
             ).length
@@ -191,7 +195,10 @@ function ManagerDashboard({ projects, tasks, profiles }: DashboardData) {
           label="Projects in flight"
           value={
             projects.filter(
-              (p) => p.status !== "done" && p.status !== "backlog",
+              (p) =>
+                p.status !== "done" &&
+                p.status !== "backlog" &&
+                p.status !== "on_hold",
             ).length
           }
           tone="emerald"
@@ -373,7 +380,7 @@ function DesignerDashboard({
   currentUserId,
 }: DashboardData & { currentUserId: string }) {
   const mine = tasks.filter(
-    (t) => t.assignee_id === currentUserId && t.status !== "done",
+    (t) => t.assignee_id === currentUserId && isTaskActive(t.status),
   );
   const overdue = mine.filter(
     (t) => t.due_date && new Date(t.due_date) < new Date(),
@@ -466,7 +473,7 @@ function TaskList({
     const parent = projects.find((p) => p.id === t.project_id);
     const a = profiles.find((p) => p.id === t.assignee_id) ?? null;
     const overdue =
-      t.due_date && new Date(t.due_date) < new Date() && t.status !== "done";
+      t.due_date && new Date(t.due_date) < new Date() && isTaskActive(t.status);
     return (
       <li key={t.id} className="py-2">
         <Link

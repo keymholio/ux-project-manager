@@ -149,6 +149,11 @@ export function AvatarStack({
 // ink scale, which already flips through the CSS variable layer.
 const STATUS_COLORS: Record<ProjectStatus | TaskStatus, string> = {
   backlog: "bg-ink-100 text-ink-700",
+  // On hold reads as "parked but still meaningful" — heavier than backlog
+  // (a slightly darker neutral) so it stands apart from the default grey,
+  // but still desaturated so it doesn't compete with the active-stage hues.
+  on_hold:
+    "bg-ink-200 text-ink-600 dark:bg-ink-200 dark:text-ink-600",
   discovery: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-300",
   on_deck: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-300",
   in_progress:
@@ -161,6 +166,11 @@ const STATUS_COLORS: Record<ProjectStatus | TaskStatus, string> = {
     "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-300",
   vdqa: "bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300",
   done: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300",
+  // Canceled reads as "stopped, not failed" — a desaturated rose tint
+  // gives it a subtle "negative" valence vs. on_hold's neutral gray
+  // without making it scream like an error chip would.
+  canceled:
+    "bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300",
 };
 
 export function ProjectStatusBadge({ status }: { status: ProjectStatus }) {
