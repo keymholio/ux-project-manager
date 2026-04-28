@@ -36,17 +36,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
 
-    supabase.auth.getSession().then(({ data }) => {
+    const init = async () => {
+      // First, consume any auth hash captured by main.tsx before HashRouter
+      // could clobber it. Supabase's automatic detectSessionInUrl can't
+      // read the original hash by the time the client is initialized
+      // (HashRouter has already rewritten it to `#/`), so we restore the
+      // session manually with setSession. PASSWORD_RECOVERY won't fire from
+      // onAuthStateChange in this flow either, so we infer recovery from
+      // the captured `type=recovery` param.
+      const captured = window.__initialAuthHash;
+      if (captured) {
+        delete window.__initialAuthHash;
+        const params = new URLSearchParams(captured);
+        const access_token = params.get("access_token");
+        const refresh_token = params.get("refresh_token");
+        const type = params.get("type");
+        if (access_token && refresh_token) {
+          const { data, error } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          });
+          if (!active) return;
+          if (!error) {
+            if (type === "recovery") setIsRecovering(true);
+            setSession(data.session);
+            if (!data.session) setLoading(false);
+            return;
+          }
+          // Fall through to getSession on error — token may have expired.
+        }
+      }
+      const { data } = await supabase.auth.getSession();
       if (!active) return;
       setSession(data.session);
       if (!data.session) setLoading(false);
-    });
+    };
+    init();
 
     const { data: sub } = supabase.auth.onAuthStateChange((evt, newSession) => {
       setSession(newSession);
       // When the user clicks a password-reset link from email, Supabase fires
       // PASSWORD_RECOVERY with a short-lived session. We stash a flag so the
       // app shows the "set new password" screen instead of the normal UI.
+      // (Note: with HashRouter we usually catch recovery via the captured
+      // hash in init() above; this branch covers any path where Supabase's
+      // own URL detection still fires the event.)
       if (evt === "PASSWORD_RECOVERY") {
         setIsRecovering(true);
       }
@@ -105,12 +139,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const requestPasswordReset: AuthContextValue["requestPasswordReset"] = async (
     email,
   ) => {
-    // After the user clicks the email link, Supabase will redirect back here,
-    // detect the recovery token in the URL, and fire PASSWORD_RECOVERY.
-    // HashRouter-friendly: land on the app root so the client picks up the
-    // hash fragment.
+    // After the user clicks the email link, Supabase appends the recovery
+    // token to this URL as a hash fragment (`#access_token=...&type=recovery`).
+    // We deliberately drop any trailing `#/` here — Supabase's hash regex
+    // matches `[#&]access_token=` and a `#/` between would prevent the
+    // match, so the recovery params would never be detected. main.tsx
+    // captures the raw hash on load and AuthProvider's init() consumes
+    // it via setSession, so HashRouter doesn't get a chance to rewrite
+    // it first.
     const redirectTo =
-      window.location.origin + window.location.pathname + "#/";
+      window.location.origin + window.location.pathname;
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
     });
