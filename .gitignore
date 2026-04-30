@@ -11,3 +11,4 @@ dist-ssr
 .idea
 *.log
 supabase/
+vite.config.ts.timestamp-*

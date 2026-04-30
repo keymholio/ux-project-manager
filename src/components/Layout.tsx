@@ -79,7 +79,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             Project Tracker
           </div>
           <div className="truncate text-xs text-ink-500">
-            Northwell Design Team
+            Northwell UX Team (Marketing)
           </div>
         </div>
       </div>
