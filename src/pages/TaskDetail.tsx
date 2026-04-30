@@ -20,7 +20,6 @@ import {
   TaskStatusBadge,
   formatDate,
 } from "../components/ui";
-import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
   LINK_TYPES,
@@ -89,10 +88,10 @@ type EditableField = (typeof EDITABLE_FIELDS)[number];
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
-  // `profile` was used to check assignee-based edit permissions before
-  // migration 012 opened up tasks: update to all authenticated users.
-  // Now we only need `isManager` for the Delete button gate.
-  const { isManager } = useAuth();
+  // Auth context is no longer destructured — both edit and delete are
+  // open to all authenticated users now (migrations 012 and 015 opened
+  // up tasks: update and tasks: delete respectively). Route guarding via
+  // AuthProvider already ensures we only get here when signed in.
 
   // Server snapshot — what the DB last told us.
   const [task, setTask] = useState<Task | null>(null);
@@ -448,15 +447,16 @@ export default function TaskDetail() {
               Saved
             </span>
           )}
-          {isManager && (
-            <Button
-              onClick={deleteTask}
-              icon={<Trash2 size={14} />}
-              className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
-            >
-              Delete
-            </Button>
-          )}
+          {/* Delete is open to anyone authenticated since migration 015
+              — designers can clean up tasks too, not just managers. RLS
+              still enforces this on the write side. */}
+          <Button
+            onClick={deleteTask}
+            icon={<Trash2 size={14} />}
+            className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+          >
+            Delete
+          </Button>
         </div>
       </header>
       {err && (
