@@ -16,6 +16,7 @@ import { useToast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
+  CATEGORY_COLOR,
   TASK_BOARD_COLUMNS,
   TASK_STATUS_LABEL,
   fmtTaskId,
@@ -734,15 +735,25 @@ function TaskCard({
           isParked ? "opacity-60 hover:opacity-100" : ""
         }`}
       >
-        {/* Top row: status chip for parked tasks + project name (left)
-            + priority (right). Parked statuses (on_hold / canceled) get
-            an explicit chip because the column header alone doesn't
-            disambiguate them — Backlog's chip says "On hold", Done's
-            says "Canceled". Active-status cards skip the chip since the
-            column header already labels them. */}
+        {/* Top row: status chip for parked tasks + category dot + project
+            name (left) + priority (right). Parked statuses (on_hold /
+            canceled) get an explicit chip because the column header
+            alone doesn't disambiguate them. The category dot mirrors
+            the bullet used on the Projects list — same color per
+            category — so cards from the same project family read as
+            visually grouped at a glance. flex-shrink-0 on the dot keeps
+            it round when the project name is long enough to truncate. */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             {isParked && <TaskStatusBadge status={task.status} />}
+            {project && (
+              <span
+                className="h-2 w-2 flex-shrink-0 rounded-full"
+                style={{ background: CATEGORY_COLOR[project.category] }}
+                title={project.category.replace(/_/g, " ")}
+                aria-hidden
+              />
+            )}
             <span className="truncate text-xs text-ink-500">
               {project ? project.name : "No project"}
             </span>

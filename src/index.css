@@ -131,6 +131,12 @@
     background-color: rgb(var(--surface));
   }
   .chip {
-    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
+    /* whitespace-nowrap keeps multi-word labels like "With prod/dev/copy"
+       on a single line. A pill that wraps reads as broken — chips are
+       meant to be tight, scannable tokens. If the chip overflows its
+       container, prefer letting the parent scroll horizontally
+       (overflow-x-auto on the row/table) over breaking the chip's
+       silhouette. */
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium;
   }
 }

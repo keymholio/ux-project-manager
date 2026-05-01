@@ -173,7 +173,11 @@ export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
   in_progress: "In progress",
   needs_review: "Needs review",
   hand_off: "Hand-off",
-  in_development: "In development",
+  // Underlying enum value stays `in_development` (no migration needed)
+  // — only the display label changes. Captures projects sitting with
+  // the prod / dev / copy team after design hand-off, waiting on
+  // implementation or copy.
+  in_development: "With prod/dev/copy",
   vdqa: "VDQA",
   done: "Done",
 };
