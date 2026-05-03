@@ -11,6 +11,7 @@ import {
   type Task,
   type TaskStatus,
 } from "../lib/types";
+import { ProjectCombobox } from "./ProjectCombobox";
 import { Button, Modal, Spinner } from "./ui";
 
 // Shared "create a new task" modal. Used from the TaskBoard's "+ New task"
@@ -163,18 +164,24 @@ export default function NewTaskModal({
           </Field>
           {!lockProject && (
             <Field label="Project">
-              <select
-                className="input"
+              {/* Typeahead instead of a native <select> — same component
+                  used by the TaskBoard filter and the TaskDetail picker.
+                  Keyboard nav + substring search on project name; the
+                  full project list is filtered client-side because at
+                  the team's scale (tens to low hundreds of projects)
+                  that's faster than a network round-trip. If the project
+                  count ever crosses a few hundred we'd want to swap this
+                  for a server-side search endpoint (Postgres `ilike` or
+                  `pg_trgm`) with debounced queries — at that point the
+                  combobox would only filter what the server returns. */}
+              <ProjectCombobox
                 value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-              >
-                <option value="">— No project —</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setProjectId(v)}
+                projects={projects}
+                extraOptions={[{ id: "", label: "— No project —" }]}
+                placeholder="— No project —"
+                className="w-full"
+              />
             </Field>
           )}
           <Field label="Assignee">
