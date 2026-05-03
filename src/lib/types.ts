@@ -2,7 +2,16 @@
 // If you change the schema, also update this file (or generate with
 // `supabase gen types typescript` from the Supabase CLI).
 
-export type UserRole = "manager" | "designer";
+export type UserRole = "manager" | "designer" | "viewer";
+
+// Display label for the role chip in the sidebar / user admin page.
+// Underlying enum values stay snake-case to match the DB; labels are the
+// human-readable form.
+export const USER_ROLE_LABEL: Record<UserRole, string> = {
+  manager: "Manager",
+  designer: "Designer",
+  viewer: "Viewer",
+};
 
 export type ProjectCategory =
   | "marketing"

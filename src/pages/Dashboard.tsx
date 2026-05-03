@@ -129,8 +129,14 @@ function ManagerDashboard({
   // Inactive users (flipped off via the Admin page) drop out of the count
   // and the workload chart entirely; their historical tasks still exist,
   // but they shouldn't skew team capacity numbers.
+  // The "team" for workload purposes is everyone who can own work —
+  // managers + designers. Viewers (read-only role from migration 016)
+  // are leadership / stakeholders watching the team's pulse, not part
+  // of the doing-work pool, so they're excluded here. Inactive users
+  // also drop out so capacity numbers aren't skewed by people who've
+  // been deactivated but still have historical tasks.
   const team = [...profiles]
-    .filter((p) => p.is_active ?? true)
+    .filter((p) => (p.is_active ?? true) && p.role !== "viewer")
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   const tasksByAssignee = useMemo(() => {

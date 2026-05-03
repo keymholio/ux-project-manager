@@ -14,7 +14,7 @@ export default function CommentThread({
   projectId?: string;
   taskId?: string;
 }) {
-  const { profile, isManager } = useAuth();
+  const { profile, isManager, canWrite } = useAuth();
   const [comments, setComments] = useState<Comment[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [body, setBody] = useState("");
@@ -161,31 +161,36 @@ export default function CommentThread({
         </ul>
       )}
 
-      <div className="mt-4 flex gap-2">
-        <Avatar profile={profile} size={28} />
-        <div className="flex-1">
-          <textarea
-            className="input"
-            rows={2}
-            placeholder="Add a comment, feedback, or handoff note"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
-            }}
-          />
-          <div className="mt-1 flex items-center justify-between">
-            <span className="text-xs text-ink-400">⌘/Ctrl + Enter to send</span>
-            <Button
-              variant="primary"
-              onClick={submit}
-              disabled={busy || !body.trim()}
-            >
-              {busy ? <Spinner /> : "Comment"}
-            </Button>
+      {/* Composer is hidden for viewers — they can read existing
+          discussion but can't post new comments. RLS in migration 016
+          also blocks the insert at the DB layer. */}
+      {canWrite && (
+        <div className="mt-4 flex gap-2">
+          <Avatar profile={profile} size={28} />
+          <div className="flex-1">
+            <textarea
+              className="input"
+              rows={2}
+              placeholder="Add a comment, feedback, or handoff note"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+              }}
+            />
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-xs text-ink-400">⌘/Ctrl + Enter to send</span>
+              <Button
+                variant="primary"
+                onClick={submit}
+                disabled={busy || !body.trim()}
+              >
+                {busy ? <Spinner /> : "Comment"}
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }

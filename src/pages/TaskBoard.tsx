@@ -56,7 +56,7 @@ const writeStoredTaskFilters = (f: StoredTaskFilters, userId?: string) => {
 };
 
 export default function TaskBoard() {
-  const { profile, isManager } = useAuth();
+  const { profile, isManager, canWrite } = useAuth();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
 
@@ -353,13 +353,17 @@ export default function TaskBoard() {
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Tasks</h1>
         </div>
-        <Button
-          variant="primary"
-          icon={<Plus size={14} />}
-          onClick={() => setCreating(true)}
-        >
-          New task
-        </Button>
+        {/* Hidden for viewers — they're read-only. RLS would reject the
+            insert anyway, but the affordance shouldn't tease. */}
+        {canWrite && (
+          <Button
+            variant="primary"
+            icon={<Plus size={14} />}
+            onClick={() => setCreating(true)}
+          >
+            New task
+          </Button>
+        )}
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -448,6 +452,7 @@ export default function TaskBoard() {
                 profiles={profiles}
                 projects={projects}
                 onDrop={onDrop}
+                draggable={canWrite}
               />
             ))}
           </div>
@@ -480,6 +485,7 @@ function Column({
   profiles,
   projects,
   onDrop,
+  draggable,
 }: {
   status: TaskStatus;
   tasks: Task[];
@@ -490,6 +496,9 @@ function Column({
     status: TaskStatus,
     beforeTaskId: string | null,
   ) => void;
+  // False for viewers — cards render non-draggable and the column drop
+  // handler short-circuits, so the drag affordance never engages.
+  draggable: boolean;
 }) {
   const [dragOver, setDragOver] = useState(false);
 
@@ -552,6 +561,7 @@ function Column({
             task={t}
             profiles={profiles}
             projects={projects}
+            draggable={draggable}
             onCardDrop={(draggedId, placement) => {
               // 'before' keeps this card as the anchor; 'after' anchors
               // on the next sibling (or null for the last card, meaning
@@ -574,11 +584,15 @@ function TaskCard({
   task,
   profiles,
   projects,
+  draggable,
   onCardDrop,
 }: {
   task: Task;
   profiles: Profile[];
   projects: Project[];
+  // When false (viewer role), the card renders non-draggable and skips
+  // the drop-target wiring. Click-to-navigate still works.
+  draggable: boolean;
   onCardDrop: (draggedId: string, placement: "before" | "after") => void;
 }) {
   const navigate = useNavigate();
@@ -691,30 +705,38 @@ function TaskCard({
         ref={cardRef}
         role="button"
         tabIndex={0}
-        draggable
-        onDragStart={(e) => {
-          draggingRef.current = true;
-          e.dataTransfer.setData("text/taskId", task.id);
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onDragEnd={() => {
-          // Defer so the trailing click fires *after* we read this flag.
-          setTimeout(() => {
-            draggingRef.current = false;
-          }, 0);
-          // Restore focus to the dragged card. HTML5 DnD has inconsistent
-          // focus behavior across browsers — Chrome blurs the source at
-          // some point during the gesture and post-drop focus typically
-          // lands on whatever element the pointer happens to be over
-          // (often a neighboring card), not the one we just moved. The
-          // node is still mounted and now lives at its new position, so
-          // focusing it directly puts the visible focus ring on the
-          // card the user actually dropped.
-          cardRef.current?.focus({ preventScroll: true });
-        }}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
+        draggable={draggable}
+        onDragStart={
+          draggable
+            ? (e) => {
+                draggingRef.current = true;
+                e.dataTransfer.setData("text/taskId", task.id);
+                e.dataTransfer.effectAllowed = "move";
+              }
+            : undefined
+        }
+        onDragEnd={
+          draggable
+            ? () => {
+                // Defer so the trailing click fires *after* we read this flag.
+                setTimeout(() => {
+                  draggingRef.current = false;
+                }, 0);
+                // Restore focus to the dragged card. HTML5 DnD has inconsistent
+                // focus behavior across browsers — Chrome blurs the source at
+                // some point during the gesture and post-drop focus typically
+                // lands on whatever element the pointer happens to be over
+                // (often a neighboring card), not the one we just moved. The
+                // node is still mounted and now lives at its new position, so
+                // focusing it directly puts the visible focus ring on the
+                // card the user actually dropped.
+                cardRef.current?.focus({ preventScroll: true });
+              }
+            : undefined
+        }
+        onDragOver={draggable ? handleDragOver : undefined}
+        onDragLeave={draggable ? handleDragLeave : undefined}
+        onDrop={draggable ? handleDrop : undefined}
         onClick={() => {
           if (draggingRef.current) return;
           navigate(`/tasks/${task.id}`);
@@ -725,7 +747,9 @@ function TaskCard({
             navigate(`/tasks/${task.id}`);
           }
         }}
-        className={`card p-3 cursor-grab active:cursor-grabbing block select-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-50 ${
+        className={`card p-3 ${
+          draggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+        } block select-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-50 ${
           dragInProgress ? "" : "hover:border-ink-400"
         } ${
           // Parked cards (on_hold / canceled) dim so the eye skips past

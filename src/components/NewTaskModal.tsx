@@ -97,12 +97,13 @@ export default function NewTaskModal({
     onCreated(data);
   };
 
-  // Anyone on the team can be assigned — managers often self-assign work too.
+  // Anyone on the team can be assigned — managers often self-assign
+  // work too. Viewers (read-only role) aren't doers and shouldn't appear
   // New tasks never carry a pre-assigned inactive user, so it's safe to
   // filter the picker down to active teammates here. Existing assignments
   // on already-created tasks are handled separately in TaskDetail.
   const team = [...profiles]
-    .filter((p) => p.is_active ?? true)
+    .filter((p) => (p.is_active ?? true) && p.role !== "viewer")
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   return (

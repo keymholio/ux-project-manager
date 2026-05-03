@@ -12,6 +12,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
 import NewTaskModal from "../components/NewTaskModal";
 import { useToast } from "../components/Toast";
+import { useAuth } from "../context/AuthContext";
 import {
   Avatar,
   AvatarStack,
@@ -105,6 +106,7 @@ export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
   const toast = useToast();
+  const { canWrite } = useAuth();
 
   // Server snapshots — what the DB last told us.
   const [project, setProject] = useState<Project | null>(null);
@@ -513,7 +515,11 @@ export default function ProjectDetail() {
   const team = [...profiles]
     .filter(
       (p) =>
-        (p.is_active ?? true) || draftAssigneeIds.includes(p.id),
+        // Viewers (read-only role) shouldn't be staffable on a project.
+        // Existing assignments stay visible so they can be removed —
+        // same allow-list pattern used for deactivated users.
+        ((p.is_active ?? true) && p.role !== "viewer") ||
+        draftAssigneeIds.includes(p.id),
     )
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
@@ -551,8 +557,11 @@ export default function ProjectDetail() {
             - Edit mode: Cancel + Save (HeaderSaveControls renders Save
               when there are changes) + Delete.
             Same physical slot in both modes; only the contents swap. */}
+        {/* Viewer role sees no Edit / Delete / Save / Cancel — they can
+            read but not mutate. RLS would block writes anyway, but the
+            buttons would tease and the click would silently fail. */}
         <div className="flex flex-shrink-0 items-center gap-2">
-          {mode === "view" && (
+          {canWrite && mode === "view" && (
             <Button
               variant="primary"
               icon={<Pencil size={14} />}
@@ -561,7 +570,7 @@ export default function ProjectDetail() {
               Edit
             </Button>
           )}
-          {mode === "edit" && (
+          {canWrite && mode === "edit" && (
             <>
               <Button onClick={exitEditMode} disabled={saving}>
                 Cancel
@@ -581,13 +590,15 @@ export default function ProjectDetail() {
               Saved
             </span>
           )}
-          <Button
-            onClick={deleteProject}
-            icon={<Trash2 size={14} />}
-            className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
-          >
-            Delete
-          </Button>
+          {canWrite && (
+            <Button
+              onClick={deleteProject}
+              icon={<Trash2 size={14} />}
+              className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+            >
+              Delete
+            </Button>
+          )}
         </div>
       </header>
       {err && (
@@ -962,17 +973,22 @@ export default function ProjectDetail() {
           {/* "Add task" opens the shared NewTaskModal here on the project
               page itself rather than bouncing the user to the TaskBoard.
               The project is pre-selected and locked, so the new task
-              automatically lands inside this section. */}
+              automatically lands inside this section. Hidden for
+              viewers (read-only). */}
+          {canWrite && (
           <Button
             icon={<Plus size={14} />}
             onClick={() => setCreatingTask(true)}
           >
             Add task
           </Button>
+          )}
         </div>
         {tasks.length === 0 ? (
           <p className="text-sm text-ink-500">
-            No tasks yet. Click "Add task" to create one.
+            {canWrite
+              ? 'No tasks yet. Click "Add task" to create one.'
+              : "No tasks yet."}
           </p>
         ) : (
           <ul className="divide-y divide-ink-100">

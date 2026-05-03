@@ -13,6 +13,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
+import { USER_ROLE_LABEL } from "../lib/types";
 import { Avatar } from "./ui";
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -117,7 +118,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 {profile?.full_name ?? "—"}
               </div>
               <div className="text-xs text-ink-500">
-                {isManager ? "Manager" : "Designer"}
+                {profile?.role ? USER_ROLE_LABEL[profile.role] : "—"}
               </div>
             </div>
           </NavLink>

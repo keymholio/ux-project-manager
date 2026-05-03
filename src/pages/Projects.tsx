@@ -104,6 +104,7 @@ const writeStoredFilters = (f: StoredProjectFilters) => {
 
 export default function Projects() {
   const toast = useToast();
+  const { canWrite } = useAuth();
   const [params, setParams] = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
   const [assignees, setAssignees] = useState<ProjectAssignee[]>([]);
@@ -534,16 +535,19 @@ export default function Projects() {
               </option>
             ))}
           </select>
-          {/* Creating projects is open to the whole team (migration 008
-              loosened the insert policy), so every signed-in user sees
-              this button. */}
-          <Button
-            variant="primary"
-            icon={<Plus size={14} />}
-            onClick={() => setCreating(true)}
-          >
-            New project
-          </Button>
+          {/* Creating projects is open to managers and designers
+              (migration 008 loosened the insert policy). Hidden for
+              viewers, who are read-only — RLS would reject the insert
+              anyway, but the button shouldn't tease them. */}
+          {canWrite && (
+            <Button
+              variant="primary"
+              icon={<Plus size={14} />}
+              onClick={() => setCreating(true)}
+            >
+              New project
+            </Button>
+          )}
         </div>
       </header>
 

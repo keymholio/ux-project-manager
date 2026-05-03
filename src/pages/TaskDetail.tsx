@@ -20,6 +20,7 @@ import {
   TaskStatusBadge,
   formatDate,
 } from "../components/ui";
+import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
   LINK_TYPES,
@@ -88,10 +89,10 @@ type EditableField = (typeof EDITABLE_FIELDS)[number];
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
-  // Auth context is no longer destructured — both edit and delete are
-  // open to all authenticated users now (migrations 012 and 015 opened
-  // up tasks: update and tasks: delete respectively). Route guarding via
-  // AuthProvider already ensures we only get here when signed in.
+  // canWrite gates the Edit / Delete affordances. RLS (migration 016)
+  // also enforces the same rule, but the UI shouldn't tease viewers
+  // with buttons that would silently fail.
+  const { canWrite } = useAuth();
 
   // Server snapshot — what the DB last told us.
   const [task, setTask] = useState<Task | null>(null);
@@ -160,13 +161,11 @@ export default function TaskDetail() {
     setDraft(task);
   }, [task]);
 
-  // Edit gating used to be `isManager || assignee_id === profile.id` so
-  // designers could only edit tasks assigned to them. Migration 012
-  // loosened the tasks: update RLS to all authenticated users — anyone
-  // on the team can now edit any task — so the UI gate is just "is
-  // signed in," which the AuthProvider has already guaranteed at the
-  // route level. Delete stays manager-only (gated separately below).
-  const canEdit = true;
+  // Edit gating used to be `isManager || assignee_id === profile.id`,
+  // then "true for any signed-in user" after migration 012. Migration
+  // 016 introduced the read-only viewer role, so it's now gated on
+  // canWrite — managers and designers edit; viewers don't.
+  const canEdit = canWrite;
 
   // View vs edit mode. Default to view so the page reads as a record on
   // first paint instead of a form, especially on mobile. Toggling to
@@ -343,7 +342,14 @@ export default function TaskDetail() {
   // who's been deactivated.
   const team = [...profiles]
     .filter(
-      (p) => (p.is_active ?? true) || p.id === draft.assignee_id,
+      (p) =>
+        // Viewers (read-only role) can't own tasks. Keep an existing
+        // viewer assignee visible if the row somehow already references
+        // one (defensive: shouldn't happen via the UI), so a manager
+        // can see and reassign it. Same exception applied to
+        // deactivated users.
+        ((p.is_active ?? true) && p.role !== "viewer") ||
+        p.id === draft.assignee_id,
     )
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
@@ -449,14 +455,17 @@ export default function TaskDetail() {
           )}
           {/* Delete is open to anyone authenticated since migration 015
               — designers can clean up tasks too, not just managers. RLS
-              still enforces this on the write side. */}
-          <Button
-            onClick={deleteTask}
-            icon={<Trash2 size={14} />}
-            className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
-          >
-            Delete
-          </Button>
+              still enforces this on the write side, and viewers (read-
+              only role) don't see the button at all. */}
+          {canWrite && (
+            <Button
+              onClick={deleteTask}
+              icon={<Trash2 size={14} />}
+              className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+            >
+              Delete
+            </Button>
+          )}
         </div>
       </header>
       {err && (

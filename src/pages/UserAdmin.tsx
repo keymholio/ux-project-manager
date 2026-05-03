@@ -339,6 +339,7 @@ export default function UserAdmin() {
                     >
                       <option value="designer">Designer</option>
                       <option value="manager">Manager</option>
+                      <option value="viewer">Viewer</option>
                     </select>
                   </td>
 

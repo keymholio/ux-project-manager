@@ -14,6 +14,11 @@ interface AuthContextValue {
   profile: Profile | null;
   loading: boolean;
   isManager: boolean;
+  // True for roles that can mutate data (manager + designer); false for
+  // viewers. UI uses this to hide create / edit / delete affordances.
+  // RLS enforces the same rule at the DB layer (migration 016) so this
+  // is a UX gate, not a security boundary.
+  canWrite: boolean;
   isRecovering: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -185,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profile,
     loading,
     isManager: profile?.role === "manager",
+    canWrite: profile?.role === "manager" || profile?.role === "designer",
     isRecovering,
     signIn,
     signOut,
