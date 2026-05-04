@@ -498,6 +498,24 @@ export default function ProjectDetail() {
     nav("/projects");
   };
 
+  // Delete a task from the inline row in the Tasks section. Optimistic
+  // local removal first so the row disappears immediately; if the DB
+  // call fails (RLS, network), we restore the row and surface the
+  // error in the toast. Realtime will dedupe the eventual DELETE event
+  // since the task is already gone from local state.
+  const deleteTaskRow = async (t: Task) => {
+    if (!confirm(`Delete "${t.title}"? This can't be undone.`)) return;
+    const prev = tasks;
+    setTasks((curr) => curr.filter((x) => x.id !== t.id));
+    const { error } = await supabase.from("tasks").delete().eq("id", t.id);
+    if (error) {
+      setTasks(prev);
+      toast(`Failed to delete: ${error.message}`);
+      return;
+    }
+    toast(`Task "${t.title}" deleted`);
+  };
+
   if (!project && !err)
     return (
       <div className="flex h-full items-center justify-center">
@@ -995,10 +1013,19 @@ export default function ProjectDetail() {
             {tasks.map((t) => {
               const a = profiles.find((p) => p.id === t.assignee_id) ?? null;
               return (
-                <li key={t.id} className="py-2">
+                <li
+                  key={t.id}
+                  // Row is a flex container so the Link (clickable
+                  // content area) and the delete button sit as
+                  // siblings. Nesting a <button> inside the <Link>
+                  // would be invalid HTML (interactive in
+                  // interactive) and would also conflict with the
+                  // navigation on click.
+                  className="group flex items-center py-2"
+                >
                   <Link
                     to={`/tasks/${t.id}`}
-                    className="flex items-center gap-3 rounded hover:bg-ink-100 -mx-1 px-1"
+                    className="flex flex-1 items-center gap-3 rounded hover:bg-ink-100 -mx-1 px-1"
                   >
                     <span className="w-12 flex-shrink-0 font-mono text-xs tabular-nums text-ink-400">
                       {fmtTaskId(t.short_id)}
@@ -1023,6 +1050,22 @@ export default function ProjectDetail() {
                       {formatDate(t.due_date)}
                     </span>
                   </Link>
+                  {/* Inline delete. Hidden for viewers; shown subtly
+                      otherwise — full color on hover so it doesn't
+                      compete with the rest of the row when scanning
+                      the list. Confirms before firing so a stray
+                      click doesn't cost a task. */}
+                  {canWrite && (
+                    <button
+                      type="button"
+                      onClick={() => deleteTaskRow(t)}
+                      aria-label={`Delete task ${t.title}`}
+                      title="Delete task"
+                      className="ml-2 rounded-md p-1.5 text-ink-300 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </li>
               );
             })}

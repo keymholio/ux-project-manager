@@ -504,7 +504,6 @@ export default function TaskDetail() {
               {team.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.full_name}
-                  {d.role === "manager" ? " (manager)" : ""}
                 </option>
               ))}
             </select>
