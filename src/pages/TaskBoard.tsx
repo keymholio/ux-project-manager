@@ -9,6 +9,7 @@ import {
   PriorityBadge,
   Spinner,
   TaskStatusBadge,
+  parseDateLocal,
 } from "../components/ui";
 import NewTaskModal from "../components/NewTaskModal";
 import { ProjectCombobox } from "../components/ProjectCombobox";
@@ -386,11 +387,14 @@ export default function TaskBoard() {
           <option value="unassigned">Unassigned</option>
           {[...profiles]
             .filter((p) => p.id !== profile?.id)
-            // Hide deactivated users from the filter dropdown, unless
-            // the current selection points at one (so the filter stays
+            // Hide deactivated users and viewers (read-only role — they
+            // can't own tasks) from the filter dropdown, unless the
+            // current selection points at one (so the filter stays
             // valid until the user manually changes it).
             .filter(
-              (p) => (p.is_active ?? true) || p.id === assigneeFilter,
+              (p) =>
+                ((p.is_active ?? true) && p.role !== "viewer") ||
+                p.id === assigneeFilter,
             )
             .sort((a, b) => a.full_name.localeCompare(b.full_name))
             .map((p) => (
@@ -646,7 +650,10 @@ function TaskCard({
     task.due_date &&
     task.status !== "done" &&
     task.status !== "canceled" &&
-    new Date(task.due_date) < new Date();
+    // parseDateLocal so a "YYYY-MM-DD" string isn't misread as UTC
+    // midnight (which would read as the previous day's date in any
+    // timezone west of UTC).
+    parseDateLocal(task.due_date) < new Date();
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     // Preventing default marks this as a valid drop target; stopping

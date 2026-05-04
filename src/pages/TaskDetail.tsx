@@ -517,7 +517,7 @@ export default function TaskDetail() {
             </div>
           )}
         </Meta>
-        <Meta label="Due date">
+        <Meta label="Due date (optional)">
           {isEditing ? (
             <input
               className="input"
@@ -562,7 +562,7 @@ export default function TaskDetail() {
             ) : draft.project_id ? (
               <Link
                 to={`/projects/${draft.project_id}`}
-                className="text-sm text-brand-700 hover:underline"
+                className="text-sm text-brand-700 hover:underline dark:text-brand-100"
               >
                 {projects.find((p) => p.id === draft.project_id)?.name ?? "—"}
               </Link>

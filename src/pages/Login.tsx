@@ -88,7 +88,7 @@ export default function Login() {
                 </label>
                 <button
                   type="button"
-                  className="text-xs text-brand-700 hover:underline"
+                  className="text-xs text-brand-700 hover:underline dark:text-brand-100"
                   onClick={() => switchMode("forgot")}
                 >
                   Forgot password?

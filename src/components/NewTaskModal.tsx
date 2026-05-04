@@ -154,7 +154,7 @@ export default function NewTaskModal({
               ))}
             </select>
           </Field>
-          <Field label="Due date">
+          <Field label="Due date (optional)">
             <input
               className="input"
               type="date"
@@ -185,25 +185,26 @@ export default function NewTaskModal({
             </Field>
           )}
           <Field label="Assignee">
-            {isManager ? (
-              <select
-                className="input"
-                value={assigneeId}
-                onChange={(e) => setAssigneeId(e.target.value)}
-              >
-                <option value="">— Unassigned —</option>
-                {team.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.full_name}
-                    {d.role === "manager" ? " (manager)" : ""}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="input bg-ink-50 text-ink-600">
-                {profile?.full_name} (you)
-              </div>
-            )}
+            {/* Anyone with write privilege (managers + designers) can
+                assign tasks to any teammate. The role-locked variant
+                that only let designers self-assign was a leftover from
+                the older RLS model where designers could only update
+                their own rows; now that migration 012 opened the
+                tasks: update policy to all writers, the picker should
+                offer the full team for everyone. */}
+            <select
+              className="input"
+              value={assigneeId}
+              onChange={(e) => setAssigneeId(e.target.value)}
+            >
+              <option value="">— Unassigned —</option>
+              {team.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.full_name}
+                  {d.role === "manager" ? " (manager)" : ""}
+                </option>
+              ))}
+            </select>
           </Field>
         </div>
         {err && (

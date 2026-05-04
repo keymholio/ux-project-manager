@@ -13,6 +13,7 @@ import {
   TaskStatusBadge,
   ToolLinks,
   formatDate,
+  parseDateLocal,
 } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -203,7 +204,7 @@ function ManagerDashboard({
               (t) =>
                 isTaskActive(t.status) &&
                 t.due_date &&
-                new Date(t.due_date) < new Date(),
+                parseDateLocal(t.due_date) < new Date(),
             ).length
           }
           tone="rose"
@@ -348,7 +349,7 @@ function ManagerDashboard({
               {upcoming.map((t) => {
                 const a = profiles.find((p) => p.id === t.assignee_id) ?? null;
                 const overdue =
-                  t.due_date && new Date(t.due_date) < new Date();
+                  t.due_date && parseDateLocal(t.due_date) < new Date();
                 return (
                   <li key={t.id} className="py-2">
                     <Link

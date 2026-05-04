@@ -46,7 +46,7 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
         const cls = c.current
           ? "font-medium text-ink-900"
           : c.accent
-            ? "text-brand-600 hover:text-brand-700 hover:underline"
+            ? "text-brand-600 hover:text-brand-700 hover:underline dark:text-brand-100 dark:hover:text-brand-50"
             : "hover:text-ink-900 hover:underline";
         const node = c.to ? (
           <Link to={c.to} className={cls}>
@@ -464,9 +464,28 @@ function brandChipClass(type: ProjectLinkType): string {
 }
 
 // ---------- Date helpers ----------
+//
+// Postgres `date` columns (like tasks.due_date / projects.due_date) come
+// back as bare YYYY-MM-DD strings — no time, no timezone. JavaScript's
+// Date constructor parses those as UTC midnight, which then renders as
+// the *previous* day in toLocaleDateString() for anyone west of UTC
+// (everyone in the Americas, basically). The fix is to detect the
+// date-only shape and build the Date using local fields instead, so
+// "2024-04-15" stays April 15 regardless of where the viewer is.
+// Strings that include a time portion (`T...`) go through the default
+// parser as before.
+export function parseDateLocal(iso: string): Date {
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (dateOnly) {
+    const [, y, m, d] = dateOnly;
+    return new Date(Number(y), Number(m) - 1, Number(d));
+  }
+  return new Date(iso);
+}
+
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const d = new Date(iso);
+  const d = parseDateLocal(iso);
   if (isNaN(d.getTime())) return "—";
   return d.toLocaleDateString(undefined, {
     month: "short",

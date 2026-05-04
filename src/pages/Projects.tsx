@@ -618,13 +618,15 @@ export default function Projects() {
           <option value="all">All designers</option>
           <option value="unassigned">Unassigned</option>
           {[...profiles]
-            // Hide deactivated teammates from the filter dropdown so the
-            // list isn't cluttered with people who shouldn't be picking
-            // up new work. The selected value survives even if the user
-            // gets deactivated mid-session — the option below keeps it in
-            // the DOM so the <select> doesn't silently drop the filter.
+            // Hide deactivated teammates and viewers (read-only role —
+            // they can't be staffed on projects) from the filter
+            // dropdown. The selected value survives in either case via
+            // the OR clause so the <select> doesn't silently drop the
+            // filter mid-session.
             .filter(
-              (p) => (p.is_active ?? true) || p.id === designerFilter,
+              (p) =>
+                ((p.is_active ?? true) && p.role !== "viewer") ||
+                p.id === designerFilter,
             )
             .sort((a, b) => a.full_name.localeCompare(b.full_name))
             .map((p) => (
@@ -944,9 +946,13 @@ function NewProjectModal({
   const [err, setErr] = useState<string | null>(null);
 
   // Include managers — they may contribute to the project themselves.
-  const team = [...profiles].sort((a, b) =>
-    a.full_name.localeCompare(b.full_name),
-  );
+  // Viewers (read-only role from migration 016) are filtered out — they
+  // can't be staffed on projects, both as a UX nicety and because
+  // migration 017 enforces it at the DB level. Inactive users drop out
+  // for the same staffing-shouldn't-suggest reason.
+  const team = [...profiles]
+    .filter((p) => (p.is_active ?? true) && p.role !== "viewer")
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
   // Create + auto-apply a new label. Dedupes against existing names so a
   // user hammering "create" with the same string doesn't hit the UNIQUE
@@ -1102,7 +1108,7 @@ function NewProjectModal({
               <option value="high">High</option>
             </select>
           </Field>
-          <Field label="Due date">
+          <Field label="Due date (optional)">
             <input
               className="input"
               type="date"

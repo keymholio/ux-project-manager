@@ -669,7 +669,7 @@ export default function ProjectDetail() {
             </span>
           )}
         </Meta>
-        <Meta label="Due date">
+        <Meta label="Due date (optional)">
           {isEditing ? (
             <input
               className="input"
