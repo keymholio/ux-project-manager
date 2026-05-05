@@ -241,6 +241,14 @@ function ManagerDashboard({
             const mine = tasksByAssignee.get(d.id) ?? [];
             const byStatus: Record<string, number> = {};
             for (const t of mine) byStatus[t.status] = (byStatus[t.status] ?? 0) + 1;
+            // On hold rolls into the Backlog segment of the workload bar.
+            // They share a column on the Tasks board too (backlog
+            // includes on_hold via tasksInColumn), so the dashboard
+            // matches that grouping. Also: without this, on_hold tasks
+            // count toward `mine.length` but render nowhere on the bar,
+            // leaving a phantom gap that didn't add up.
+            const backlogish =
+              (byStatus.backlog ?? 0) + (byStatus.on_hold ?? 0);
             return (
               <div key={d.id} className="flex items-center gap-3">
                 <Avatar profile={d} size={32} />
@@ -256,13 +264,21 @@ function ManagerDashboard({
                       <div className="h-2 flex-1" />
                     ) : (
                       <>
-                        {byStatus.backlog ? (
+                        {backlogish ? (
                           <div
                             className="h-2 bg-ink-300"
                             style={{
-                              flexBasis: `${(byStatus.backlog / mine.length) * 100}%`,
+                              flexBasis: `${(backlogish / mine.length) * 100}%`,
                             }}
-                            title={`${byStatus.backlog} backlog`}
+                            // Tooltip breaks out the on_hold count when
+                            // it's non-zero so the user can see how the
+                            // segment is composed without a separate
+                            // legend swatch.
+                            title={
+                              byStatus.on_hold
+                                ? `${backlogish} backlog (${byStatus.on_hold} on hold)`
+                                : `${backlogish} backlog`
+                            }
                           />
                         ) : null}
                         {byStatus.on_deck ? (
