@@ -349,7 +349,7 @@ export default function TaskBoard() {
     );
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 h-full flex flex-col">
+    <div className="p-4 sm:p-6 space-y-4 sm:h-full sm:flex sm:flex-col">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-ink-900">Tasks</h1>
@@ -371,7 +371,7 @@ export default function TaskBoard() {
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-2.5 text-ink-400" />
           <input
-            className="input pl-8 w-64"
+            className="input pl-8 w-full sm:w-64"
             placeholder="Search tasks"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -426,7 +426,7 @@ export default function TaskBoard() {
           }
         />
       ) : (
-        <div className="flex-1 overflow-x-auto">
+        <div className="overflow-x-auto sm:flex-1">
           {/* Column count comes from TASK_BOARD_COLUMNS — a deliberate
               subset of TASK_STATUS_ORDER. on_hold and canceled aren't
               their own columns; they share Backlog and Done respectively
@@ -434,7 +434,7 @@ export default function TaskBoard() {
               there auto-rebalances this grid. min-w floor keeps columns
               usable when the viewport is very narrow. */}
           <div
-            className="grid gap-3 h-full min-w-[880px]"
+            className="grid gap-3 sm:h-full min-w-[880px]"
             style={{
               gridTemplateColumns: `repeat(${TASK_BOARD_COLUMNS.length}, minmax(0, 1fr))`,
               // Single row that claims the full grid height. Without an

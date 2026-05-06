@@ -1025,18 +1025,16 @@ export default function ProjectDetail() {
                 >
                   <Link
                     to={`/tasks/${t.id}`}
-                    className="flex flex-1 items-center gap-3 rounded hover:bg-ink-100 -mx-1 px-1"
+                    className="flex flex-1 min-w-0 items-center gap-2 sm:gap-3 rounded hover:bg-ink-100 -mx-1 px-1"
                   >
-                    <span className="w-12 flex-shrink-0 font-mono text-xs tabular-nums text-ink-400">
+                    {/* Task ID — hidden on mobile to save horizontal space. */}
+                    <span className="hidden sm:inline w-12 flex-shrink-0 font-mono text-xs tabular-nums text-ink-400">
                       {fmtTaskId(t.short_id)}
                     </span>
-                    {/* Assignee avatar + name. Spelling the name out (rather
-                        than just showing the avatar) makes the row scannable
-                        without relying on color/initials recognition,
-                        especially on mobile where the avatars are small. */}
-                    <div className="flex w-32 flex-shrink-0 items-center gap-1.5">
+                    {/* Assignee avatar always shown; name only on sm+. */}
+                    <div className="flex flex-shrink-0 items-center gap-1.5 sm:w-32">
                       <Avatar profile={a} size={22} />
-                      <span className="truncate text-xs text-ink-700">
+                      <span className="hidden sm:inline truncate text-xs text-ink-700">
                         {a?.full_name ?? "Unassigned"}
                       </span>
                     </div>
@@ -1046,7 +1044,8 @@ export default function ProjectDetail() {
                       </div>
                     </div>
                     <TaskStatusBadge status={t.status} />
-                    <span className="w-24 text-right text-xs text-ink-500">
+                    {/* Due date — hidden on mobile to prevent row overflow. */}
+                    <span className="hidden sm:inline w-24 text-right text-xs text-ink-500">
                       {formatDate(t.due_date)}
                     </span>
                   </Link>

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      theme-color drives the iOS Safari status bar (time/battery strip) and
+      the bottom URL bar. The default below matches the light surface
+      (white) so the app's first paint blends into the chrome instead of
+      sitting inside a default gray strip. ThemeContext rewrites the
+      content attribute to the dark surface (#1a1a30) whenever dark mode
+      is active, so the chrome follows the rest of the UI.
+    -->
+    <meta name="theme-color" content="#ffffff" />
+    <title>UX Project Tracker</title>
+    <link rel="preconnect" href="https://rsms.me/" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <script>
+      // Apply persisted theme preference before any styles render so the
+      // initial paint matches the user's last choice. Runs synchronously
+      // so there's no flash of light theme for dark-mode users on
+      // reload. ThemeProvider in React keeps this in sync at runtime.
+      // We also rewrite the theme-color meta tag here so the iOS Safari
+      // status bar / URL bar match the dark surface from the very first
+      // frame — otherwise the chrome paints white briefly before React
+      // catches up.
+      (function () {
+        try {
+          var stored = localStorage.getItem("ui:theme");
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var wantDark =
+            stored === "dark" || (stored !== "light" && prefersDark);
+          if (wantDark) {
+            document.documentElement.classList.add("dark");
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute("content", "#1a1a30");
+          }
+        } catch (e) {
+          /* localStorage blocked — render light */
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-D3WdjhVL.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-C7LMCpfy.css">
+  </head>
+  <body class="bg-ink-50 text-ink-900 antialiased">
+    <div id="root"></div>
+  </body>
+</html>
