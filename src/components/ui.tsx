@@ -319,6 +319,65 @@ export function Spinner(props: HTMLAttributes<HTMLDivElement>) {
   );
 }
 
+// ---------- Linkify ----------
+// Turns bare URLs in user-entered text into clickable anchors. Used by the
+// discussion thread (and anywhere else we render free-form prose) so that
+// pasting a Figma/Jira/etc. link "just works" without any markdown syntax.
+//
+// We match http(s):// and bare www. URLs, then strip common trailing
+// punctuation (periods, commas, closing brackets) so a sentence like
+// "see https://example.com." doesn't capture the period in the link.
+const URL_REGEX = /(https?:\/\/[^\s<>]+|www\.[^\s<>]+)/gi;
+const TRAILING_PUNCT = /[)\].,;:!?'"]+$/;
+
+export function Linkify({ text }: { text: string }) {
+  if (!text) return null;
+  const out: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  // Reset in case the regex was used elsewhere (it's module-scoped + /g).
+  URL_REGEX.lastIndex = 0;
+  while ((match = URL_REGEX.exec(text)) !== null) {
+    const raw = match[0];
+    let url = raw;
+    let trail = "";
+    const punct = TRAILING_PUNCT.exec(url);
+    if (punct) {
+      trail = punct[0];
+      url = url.slice(0, -trail.length);
+    }
+    if (match.index > lastIndex) {
+      out.push(
+        <Fragment key={`t-${lastIndex}`}>
+          {text.slice(lastIndex, match.index)}
+        </Fragment>,
+      );
+    }
+    const href = url.startsWith("http") ? url : `https://${url}`;
+    out.push(
+      <a
+        key={`l-${match.index}`}
+        href={href}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="text-brand-600 underline-offset-2 hover:underline dark:text-brand-100"
+      >
+        {url}
+      </a>,
+    );
+    if (trail) {
+      out.push(<Fragment key={`p-${match.index}`}>{trail}</Fragment>);
+    }
+    lastIndex = match.index + raw.length;
+  }
+  if (lastIndex < text.length) {
+    out.push(
+      <Fragment key={`t-${lastIndex}`}>{text.slice(lastIndex)}</Fragment>,
+    );
+  }
+  return <>{out}</>;
+}
+
 // ---------- Tool-link pill ----------
 export function ToolLinks({
   figma,

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import type { Comment, Profile } from "../lib/types";
-import { Avatar, Button, Spinner, formatRelative } from "./ui";
+import { Avatar, Button, Linkify, Spinner, formatRelative } from "./ui";
 
 // One thread, targeted at either a project or a task. Exactly one of
 // `projectId` / `taskId` is expected.
@@ -151,8 +151,8 @@ export default function CommentThread({
                       </button>
                     )}
                   </div>
-                  <div className="mt-0.5 whitespace-pre-wrap text-sm text-ink-800">
-                    {c.body}
+                  <div className="mt-0.5 whitespace-pre-wrap break-words text-sm text-ink-800">
+                    <Linkify text={c.body} />
                   </div>
                 </div>
               </li>
