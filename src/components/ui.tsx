@@ -320,32 +320,51 @@ export function Spinner(props: HTMLAttributes<HTMLDivElement>) {
 }
 
 // ---------- Linkify ----------
-// Turns bare URLs in user-entered text into clickable anchors. Used by the
-// discussion thread (and anywhere else we render free-form prose) so that
-// pasting a Figma/Jira/etc. link "just works" without any markdown syntax.
+// Turns bare URLs and @-mentions in user-entered text into clickable
+// links. Used by the discussion thread (and anywhere else we render
+// free-form prose) so that pasting a Figma/Jira/etc. link or typing
+// "@P-12" / "@T-45" "just works" without any markdown syntax.
 //
-// We match http(s):// and bare www. URLs, then strip common trailing
-// punctuation (periods, commas, closing brackets) so a sentence like
-// "see https://example.com." doesn't capture the period in the link.
-const URL_REGEX = /(https?:\/\/[^\s<>]+|www\.[^\s<>]+)/gi;
+// Tokenizing rules:
+//  - URLs: match http(s):// and bare www. URLs, then strip common
+//    trailing punctuation (periods, commas, closing brackets) so a
+//    sentence like "see https://example.com." doesn't capture the
+//    period in the link.
+//  - Mentions: `@P-NN` and `@T-NN` (case-insensitive). The negative
+//    lookbehind `(?<!\w)` keeps us from matching inside something like
+//    `email@P-12.com`. The trailing `\b` keeps us from matching half of
+//    `@P-12foo`. Mentions resolve through the `mentions` prop — unknown
+//    IDs render as plain text rather than a broken link.
+const TOKEN_REGEX = /(https?:\/\/[^\s<>]+|www\.[^\s<>]+)|(?<!\w)@([PT]-\d+)\b/gi;
 const TRAILING_PUNCT = /[)\].,;:!?'"]+$/;
 
-export function Linkify({ text }: { text: string }) {
+export interface Mention {
+  /** Router path to navigate to, e.g. `/projects/{uuid}`. */
+  href: string;
+  /** Optional human-readable name for a tooltip (project / task title). */
+  name?: string;
+}
+
+export function Linkify({
+  text,
+  mentions,
+}: {
+  text: string;
+  /** Map keyed by canonical id (`P-12`, `T-45`, uppercase). When a
+   *  mention isn't in this map it renders as plain text. */
+  mentions?: Record<string, Mention>;
+}) {
   if (!text) return null;
   const out: ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   // Reset in case the regex was used elsewhere (it's module-scoped + /g).
-  URL_REGEX.lastIndex = 0;
-  while ((match = URL_REGEX.exec(text)) !== null) {
+  TOKEN_REGEX.lastIndex = 0;
+  while ((match = TOKEN_REGEX.exec(text)) !== null) {
     const raw = match[0];
-    let url = raw;
-    let trail = "";
-    const punct = TRAILING_PUNCT.exec(url);
-    if (punct) {
-      trail = punct[0];
-      url = url.slice(0, -trail.length);
-    }
+    const urlMatch = match[1];
+    const mentionId = match[2]?.toUpperCase();
+
     if (match.index > lastIndex) {
       out.push(
         <Fragment key={`t-${lastIndex}`}>
@@ -353,21 +372,49 @@ export function Linkify({ text }: { text: string }) {
         </Fragment>,
       );
     }
-    const href = url.startsWith("http") ? url : `https://${url}`;
-    out.push(
-      <a
-        key={`l-${match.index}`}
-        href={href}
-        target="_blank"
-        rel="noreferrer noopener"
-        className="text-brand-600 underline-offset-2 hover:underline dark:text-brand-100"
-      >
-        {url}
-      </a>,
-    );
-    if (trail) {
-      out.push(<Fragment key={`p-${match.index}`}>{trail}</Fragment>);
+
+    if (urlMatch) {
+      let url = urlMatch;
+      let trail = "";
+      const punct = TRAILING_PUNCT.exec(url);
+      if (punct) {
+        trail = punct[0];
+        url = url.slice(0, -trail.length);
+      }
+      const href = url.startsWith("http") ? url : `https://${url}`;
+      out.push(
+        <a
+          key={`l-${match.index}`}
+          href={href}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="text-brand-600 underline-offset-2 hover:underline dark:text-brand-100"
+        >
+          {url}
+        </a>,
+      );
+      if (trail) {
+        out.push(<Fragment key={`p-${match.index}`}>{trail}</Fragment>);
+      }
+    } else if (mentionId) {
+      const m = mentions?.[mentionId];
+      if (m) {
+        out.push(
+          <Link
+            key={`m-${match.index}`}
+            to={m.href}
+            title={m.name}
+            className="rounded bg-brand-600/10 px-1 font-medium text-brand-700 hover:underline dark:bg-brand-100/10 dark:text-brand-100"
+          >
+            @{mentionId}
+          </Link>,
+        );
+      } else {
+        // Unknown ID — leave the raw text so we don't fake a working link.
+        out.push(<Fragment key={`u-${match.index}`}>{raw}</Fragment>);
+      }
     }
+
     lastIndex = match.index + raw.length;
   }
   if (lastIndex < text.length) {

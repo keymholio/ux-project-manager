@@ -170,6 +170,10 @@ export interface Comment {
   task_id: string | null;
   project_id: string | null;
   created_at: string;
+  // Bumped by the touch_updated_at trigger on every UPDATE (migration 019).
+  // Equal to created_at until the comment has been edited; the UI uses
+  // that equality to decide whether to render the "(edited)" indicator.
+  updated_at: string;
 }
 
 // =============================================================================

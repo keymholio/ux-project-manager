@@ -1,9 +1,16 @@
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import type { Comment, Profile } from "../lib/types";
-import { Avatar, Button, Linkify, Spinner, formatRelative } from "./ui";
+import {
+  Avatar,
+  Button,
+  Linkify,
+  Spinner,
+  formatRelative,
+  type Mention,
+} from "./ui";
 
 // One thread, targeted at either a project or a task. Exactly one of
 // `projectId` / `taskId` is expected.
@@ -17,9 +24,22 @@ export default function CommentThread({
   const { profile, isManager, canWrite } = useAuth();
   const [comments, setComments] = useState<Comment[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  // Map of `P-12` / `T-45` → href + name, used by Linkify to turn
+  // `@P-12` mentions in a comment body into clickable links. Built once
+  // on mount from `projects` and `tasks` so the lookup is O(1) per
+  // mention. Unknown IDs (deleted, typo, etc.) fall back to plain text
+  // inside Linkify.
+  const [mentions, setMentions] = useState<Record<string, Mention>>({});
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Inline edit state. Only one comment can be in edit mode at a time —
+  // `editingId` doubles as the open/closed flag. `editBody` is the
+  // working copy of the textarea; on save we diff against the server
+  // row and skip the round trip if nothing actually changed.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editBody, setEditBody] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
 
   const filterColumn = taskId ? "task_id" : "project_id";
   const filterValue = taskId ?? projectId;
@@ -34,17 +54,44 @@ export default function CommentThread({
     if (!filterValue) return;
     let active = true;
     (async () => {
-      const [cRes, pRes] = await Promise.all([
+      // Pull projects + tasks in the same round trip so `@P-NN` /
+      // `@T-NN` mentions can be resolved without a second pass. We only
+      // need id, short_id, and name/title — keep the payload small.
+      const [cRes, pRes, projRes, taskRes] = await Promise.all([
         supabase
           .from("comments")
           .select("*")
           .eq(filterColumn, filterValue)
           .order("created_at", { ascending: true }),
         supabase.from("profiles").select("*"),
+        supabase.from("projects").select("id,short_id,name"),
+        supabase.from("tasks").select("id,short_id,title"),
       ]);
       if (!active) return;
       setComments(cRes.data ?? []);
       setProfiles(pRes.data ?? []);
+      const map: Record<string, Mention> = {};
+      for (const p of (projRes.data ?? []) as {
+        id: string;
+        short_id: number;
+        name: string;
+      }[]) {
+        map[`P-${p.short_id}`] = {
+          href: `/projects/${p.id}`,
+          name: p.name,
+        };
+      }
+      for (const t of (taskRes.data ?? []) as {
+        id: string;
+        short_id: number;
+        title: string;
+      }[]) {
+        map[`T-${t.short_id}`] = {
+          href: `/tasks/${t.id}`,
+          name: t.title,
+        };
+      }
+      setMentions(map);
       setLoading(false);
     })();
     const channel = supabase
@@ -102,6 +149,49 @@ export default function CommentThread({
     setBusy(false);
   };
 
+  const startEdit = (c: Comment) => {
+    setEditingId(c.id);
+    setEditBody(c.body);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditBody("");
+  };
+
+  const saveEdit = async () => {
+    if (!editingId) return;
+    const trimmed = editBody.trim();
+    if (!trimmed) return;
+    // Skip the round trip if the user hit Save without actually changing
+    // anything — keeps the timestamp untouched and avoids a spurious
+    // "(edited)" indicator.
+    const original = comments.find((c) => c.id === editingId);
+    if (original && original.body === trimmed) {
+      cancelEdit();
+      return;
+    }
+    setEditBusy(true);
+    const { data, error } = await supabase
+      .from("comments")
+      .update({ body: trimmed })
+      .eq("id", editingId)
+      .select()
+      .single();
+    if (error) {
+      alert(error.message);
+      setEditBusy(false);
+      return;
+    }
+    if (data) {
+      // Optimistically merge — realtime will fire too but we don't want
+      // a flash of stale text in the meantime.
+      setComments((prev) => prev.map((c) => (c.id === data.id ? data : c)));
+    }
+    setEditBusy(false);
+    cancelEdit();
+  };
+
   const deleteComment = async (id: string) => {
     if (!confirm("Delete this comment?")) return;
     const { error } = await supabase.from("comments").delete().eq("id", id);
@@ -130,7 +220,18 @@ export default function CommentThread({
         <ul className="space-y-3">
           {comments.map((c) => {
             const author = profiles.find((p) => p.id === c.author_id) ?? null;
-            const canDelete = c.author_id === profile?.id || isManager;
+            const isOwn = c.author_id === profile?.id;
+            // Edit is author-only (managers don't get to rewrite other
+            // people's words — see migration 019 for the matching RLS
+            // policy). Delete keeps the broader "author or manager" rule
+            // from migration 001.
+            const canEdit = isOwn && canWrite;
+            const canDelete = isOwn || isManager;
+            const isEditing = editingId === c.id;
+            // Comments get equal created_at and updated_at on insert
+            // (both default to now() in the same transaction), so a
+            // strict inequality is enough to detect an edit.
+            const wasEdited = c.updated_at !== c.created_at;
             return (
               <li key={c.id} className="flex gap-3">
                 <Avatar profile={author} size={28} />
@@ -141,19 +242,75 @@ export default function CommentThread({
                     </span>
                     <span>·</span>
                     <span>{formatRelative(c.created_at)}</span>
-                    {canDelete && (
-                      <button
-                        onClick={() => deleteComment(c.id)}
-                        className="ml-auto rounded p-1 text-ink-400 hover:bg-ink-100 hover:text-rose-600"
-                        aria-label="Delete comment"
+                    {wasEdited && (
+                      <span
+                        className="text-ink-400"
+                        title={`Edited ${formatRelative(c.updated_at)}`}
                       >
-                        <Trash2 size={12} />
-                      </button>
+                        (edited)
+                      </span>
+                    )}
+                    {!isEditing && (canEdit || canDelete) && (
+                      <span className="ml-auto flex items-center gap-1">
+                        {canEdit && (
+                          <button
+                            onClick={() => startEdit(c)}
+                            className="rounded p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+                            aria-label="Edit comment"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => deleteComment(c.id)}
+                            className="rounded p-1 text-ink-400 hover:bg-ink-100 hover:text-rose-600"
+                            aria-label="Delete comment"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </span>
                     )}
                   </div>
-                  <div className="mt-0.5 whitespace-pre-wrap break-words text-sm text-ink-800">
-                    <Linkify text={c.body} />
-                  </div>
+                  {isEditing ? (
+                    <div className="mt-1">
+                      <textarea
+                        className="input"
+                        rows={2}
+                        value={editBody}
+                        onChange={(e) => setEditBody(e.target.value)}
+                        onKeyDown={(e) => {
+                          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                            saveEdit();
+                          } else if (e.key === "Escape") {
+                            cancelEdit();
+                          }
+                        }}
+                        autoFocus
+                      />
+                      <div className="mt-1 flex items-center justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          onClick={cancelEdit}
+                          disabled={editBusy}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="primary"
+                          onClick={saveEdit}
+                          disabled={editBusy || !editBody.trim()}
+                        >
+                          {editBusy ? <Spinner /> : "Save"}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-0.5 whitespace-pre-wrap break-words text-sm text-ink-800">
+                      <Linkify text={c.body} mentions={mentions} />
+                    </div>
+                  )}
                 </div>
               </li>
             );
@@ -171,7 +328,7 @@ export default function CommentThread({
             <textarea
               className="input"
               rows={2}
-              placeholder="Add a comment, feedback, or handoff note"
+              placeholder="Add a comment, feedback, or handoff note. Use @P-12 or @T-45 to link a project/task."
               value={body}
               onChange={(e) => setBody(e.target.value)}
               onKeyDown={(e) => {
