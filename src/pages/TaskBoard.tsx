@@ -135,7 +135,7 @@ export default function TaskBoard() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     // Done column only shows tasks completed during the current work week
-    // (Monday 00:00 → now, local time). Older completed tasks remain in the
+    // (Sunday 00:00 → now, local time). Older completed tasks remain in the
     // DB but are hidden from the board so the column doesn't grow forever.
     // A null completed_at on a 'done' row (optimistic drop not yet confirmed
     // by realtime) is treated as "just finished" so cards don't flash out
@@ -143,11 +143,10 @@ export default function TaskBoard() {
     const startOfWeekMs = (() => {
       const d = new Date();
       d.setHours(0, 0, 0, 0);
-      // getDay(): Sunday=0, Monday=1, ... Saturday=6. Back up to Monday —
-      // Sunday wraps to 6 days back so Sun work still lands in "this week"
-      // rather than snapping forward to the next Monday.
+      // getDay(): Sunday=0, Monday=1, ... Saturday=6. Back up to Sunday —
+      // already-Sunday subtracts 0 days, every other day subtracts dow days.
       const dow = d.getDay();
-      d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+      d.setDate(d.getDate() - dow);
       return d.getTime();
     })();
     return tasks.filter((t) => {
@@ -540,7 +539,7 @@ function Column({
           className="text-xs font-semibold uppercase tracking-wide text-ink-600"
           title={
             status === "done"
-              ? "Showing tasks completed this week (since Monday)."
+              ? "Showing tasks completed this week (since Sunday)."
               : undefined
           }
         >

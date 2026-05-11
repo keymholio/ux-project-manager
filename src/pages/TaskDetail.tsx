@@ -290,12 +290,32 @@ export default function TaskDetail() {
       setSaving(false);
       return;
     }
+    // Mirror the touch_completed_at trigger (migration 014) on the
+    // client so the "Completed" meta appears/disappears in the same
+    // tick as the save — without this, the local snapshot keeps its
+    // old completed_at until the realtime echo arrives. Stamp on
+    // transition INTO done/canceled, clear on transition OUT.
+    const wasTerminal =
+      task.status === "done" || task.status === "canceled";
+    const isTerminal =
+      draft.status === "done" || draft.status === "canceled";
+    let completedAtPatch: { completed_at?: string | null } = {};
+    if (isTerminal && !wasTerminal) {
+      completedAtPatch = { completed_at: new Date().toISOString() };
+    } else if (!isTerminal && wasTerminal) {
+      completedAtPatch = { completed_at: null };
+    }
     // Adopt the draft as the new server snapshot so isDirty flips off
     // without waiting for the realtime echo.
-    setTask({ ...task, ...diff } as Task);
+    setTask({ ...task, ...diff, ...completedAtPatch } as Task);
     // Fold the cleaned links back into the draft so empty rows the user
     // left behind get swept out on save.
-    setDraft({ ...draft, ...diff, links: cleanedLinks } as Task);
+    setDraft({
+      ...draft,
+      ...diff,
+      ...completedAtPatch,
+      links: cleanedLinks,
+    } as Task);
     setSaving(false);
     setSavedAt(Date.now());
     // A successful save returns the page to view mode — the user has
@@ -570,6 +590,22 @@ export default function TaskDetail() {
             )}
           </Meta>
         </div>
+        {/* Completed date. The touch_completed_at trigger (migration 014)
+            stamps completed_at when status flips into done/canceled and
+            clears it on the way back out, so we just read from `task`
+            here. Reading from `task` rather than `draft` also prevents
+            unsaved status edits from spoofing a date that isn't there
+            yet. Older rows completed before the trigger existed may have
+            null completed_at — in that case we omit the field rather
+            than guess a date. */}
+        {(task.status === "done" || task.status === "canceled") &&
+          task.completed_at && (
+            <Meta label="Completed">
+              <span className="text-sm text-ink-900">
+                {formatDate(task.completed_at)}
+              </span>
+            </Meta>
+          )}
       </section>
 
       {/* Description */}
