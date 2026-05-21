@@ -45,6 +45,10 @@ export default function Reports() {
 
 // One card per report. Whole card is clickable (wrapped in Link) so the
 // hit target matches the visual extent rather than just the title.
+//
+// The status chip only renders for "coming_soon" reports — once a
+// report ships, the card is just the card. (A "Ready" chip on a card
+// that opens immediately into a working report was noise.)
 function ReportCard({ report }: { report: ReportDef }) {
   const Icon = report.icon;
   const isReady = report.status === "ready";
@@ -57,15 +61,9 @@ function ReportCard({ report }: { report: ReportDef }) {
         <div className="flex h-9 w-9 items-center justify-center rounded-md bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-100">
           <Icon size={18} />
         </div>
-        <span
-          className={`chip ${
-            isReady
-              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300"
-              : "bg-ink-100 text-ink-600"
-          }`}
-        >
-          {isReady ? "Ready" : "Coming soon"}
-        </span>
+        {!isReady && (
+          <span className="chip bg-ink-100 text-ink-600">Coming soon</span>
+        )}
       </div>
       <div className="space-y-1">
         <h2 className="text-sm font-semibold text-ink-900">{report.title}</h2>

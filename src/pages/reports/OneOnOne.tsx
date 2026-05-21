@@ -5,6 +5,7 @@ import {
   Clock,
   RefreshCw,
 } from "lucide-react";
+import type { MouseEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import {
   Avatar,
@@ -83,6 +84,42 @@ export default function OneOnOne({ report }: { report: ReportDef }) {
     void load();
   }, [load]);
 
+  // The app shell uses a scrollable <main> with overflow-y-auto and the
+  // document body has overflow hidden — which means native anchor-link
+  // scrolling (and the in-page "Jump to" pills below) won't work the
+  // browser-default way, because the browser would try to scroll the
+  // document, not the actual scroll container. We handle the scroll
+  // manually via scrollIntoView, which finds the nearest scrollable
+  // ancestor and does the right thing here. This effect handles the
+  // case where someone arrives with a hash already set (deep link or
+  // refresh) — we wait for the data to render before scrolling so the
+  // target element exists.
+  useEffect(() => {
+    if (!data) return;
+    const hash = window.location.hash;
+    if (!hash) return;
+    // requestAnimationFrame to let React commit the new DOM first.
+    requestAnimationFrame(() => {
+      const target = document.getElementById(hash.slice(1));
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [data]);
+
+  // Click handler for the "Jump to" pills. Same scrollIntoView trick,
+  // plus we push the hash into the URL so the back button and link
+  // sharing still work.
+  const jumpTo = (e: MouseEvent<HTMLAnchorElement>, id: string) => {
+    e.preventDefault();
+    document
+      .getElementById(id)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (window.history.pushState) {
+      window.history.pushState(null, "", `#${id}`);
+    } else {
+      window.location.hash = id;
+    }
+  };
+
   if (err) {
     return (
       <div className="p-4 sm:p-6 pb-20 space-y-6">
@@ -130,20 +167,26 @@ export default function OneOnOne({ report }: { report: ReportDef }) {
 
       {/* Quick anchor list — jump to a person. Cheaper than building a
           full segmented control; works fine for a team of 4 and scales
-          naturally as the roster grows. */}
+          naturally as the roster grows. Clicks go through jumpTo (see
+          above) rather than relying on default anchor behavior, which
+          doesn't work in this app's scrollable-main layout. */}
       {team.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-ink-500">Jump to:</span>
-          {team.map((p) => (
-            <a
-              key={p.id}
-              href={`#person-${p.id}`}
-              className="inline-flex items-center gap-1.5 rounded-full bg-ink-100 px-3 py-1 text-ink-700 hover:bg-ink-200"
-            >
-              <Avatar profile={p} size={18} />
-              {p.full_name}
-            </a>
-          ))}
+          {team.map((p) => {
+            const id = `person-${p.id}`;
+            return (
+              <a
+                key={p.id}
+                href={`#${id}`}
+                onClick={(e) => jumpTo(e, id)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-ink-100 px-3 py-1 text-ink-700 hover:bg-ink-200"
+              >
+                <Avatar profile={p} size={18} />
+                {p.full_name}
+              </a>
+            );
+          })}
         </div>
       )}
 
