@@ -177,6 +177,33 @@ export interface Comment {
 }
 
 // =============================================================================
+// Status history (migration 021) — append-only ledger of every transition
+// =============================================================================
+// One row per status change on a project or task. Triggers populate the
+// table automatically:
+//   * INSERT trigger logs the starting status with from_status = null
+//   * UPDATE trigger logs each transition with both sides populated
+//
+// Exactly one of project_id / task_id is set per row (DB CHECK enforced).
+// from_status / to_status are stored as text because the column has to
+// accept either set of enum values; cast to ProjectStatus or TaskStatus
+// based on which subject is set.
+export interface StatusEvent {
+  id: string;
+  project_id: string | null;
+  task_id: string | null;
+  // null on the initial-state event written when the row was created
+  // (or backfilled by migration 021). Always populated for true
+  // transitions.
+  from_status: string | null;
+  to_status: string;
+  // Whoever made the change (auth.uid() at the time the trigger fired).
+  // Can be null for service-role writes or backfilled events.
+  changed_by: string | null;
+  changed_at: string;
+}
+
+// =============================================================================
 // Display labels — the single source of truth for status/category copy in UI.
 // =============================================================================
 export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {

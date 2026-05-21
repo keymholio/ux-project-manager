@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   KanbanSquare,
   LayoutDashboard,
   LogOut,
@@ -52,16 +53,20 @@ export default function Layout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [drawerOpen]);
 
-  // Admin link appears only for managers. Everyone else gets the same
-  // three-item nav they had before — the route is also guarded on the
-  // page itself (and by RLS on the write side) so hiding the nav entry
-  // is a UX nicety rather than the security boundary.
+  // Reports + Admin links appear only for managers. Everyone else gets
+  // the same three-item nav they had before — the routes are also
+  // guarded on the pages themselves (and by RLS on the write side) so
+  // hiding the nav entries is a UX nicety rather than the security
+  // boundary.
   const navItems = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard },
     { to: "/projects", label: "Projects", icon: FolderKanban },
     { to: "/tasks", label: "Tasks", icon: KanbanSquare },
     ...(isManager
-      ? [{ to: "/admin/users", label: "Users", icon: Users }]
+      ? [
+          { to: "/reports", label: "Reports", icon: BarChart3 },
+          { to: "/admin/users", label: "Users", icon: Users },
+        ]
       : []),
   ];
 

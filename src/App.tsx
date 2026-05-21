@@ -5,6 +5,8 @@ import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import ProjectDetail from "./pages/ProjectDetail";
 import Projects from "./pages/Projects";
+import ReportDetail from "./pages/ReportDetail";
+import Reports from "./pages/Reports";
 import ResetPassword from "./pages/ResetPassword";
 import Settings from "./pages/Settings";
 import TaskBoard from "./pages/TaskBoard";
@@ -47,8 +49,10 @@ export default function App() {
         <Route path="/tasks" element={<TaskBoard />} />
         <Route path="/tasks/:id" element={<TaskDetail />} />
         <Route path="/settings" element={<Settings />} />
-        {/* Manager-only. Guard is re-enforced inside the page so a
+        {/* Manager-only. Guards are re-enforced inside each page so a
             non-manager typing the URL gets bounced to the dashboard. */}
+        <Route path="/reports" element={<Reports />} />
+        <Route path="/reports/:slug" element={<ReportDetail />} />
         <Route path="/admin/users" element={<UserAdmin />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
