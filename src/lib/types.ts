@@ -280,6 +280,33 @@ export const tasksInColumn = (
   return status === column;
 };
 
+// =============================================================================
+// Notifications (migration 022) — in-app bell notifications
+// =============================================================================
+// One row per recipient per event. Types:
+//   task_assignment    — someone assigned a task to you
+//   project_assignment — someone added you to a project
+//   mention            — someone @mentioned you in a comment
+//
+// Exactly one of task_id / project_id / comment_id is typically set per row
+// to provide a deep-link target; `actor_id` is who triggered the event.
+export type NotificationType =
+  | "task_assignment"
+  | "project_assignment"
+  | "mention";
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  type: NotificationType;
+  actor_id: string | null;
+  task_id: string | null;
+  project_id: string | null;
+  comment_id: string | null;
+  read: boolean;
+  created_at: string;
+}
+
 // "Active" task = anything that isn't a terminal state. Used by the
 // Dashboard for workload counts, overdue checks, and similar — canceled
 // tasks shouldn't pad those numbers any more than completed tasks do.

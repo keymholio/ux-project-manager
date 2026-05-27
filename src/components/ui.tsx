@@ -321,21 +321,22 @@ export function Spinner(props: HTMLAttributes<HTMLDivElement>) {
 
 // ---------- Linkify ----------
 // Turns bare URLs and @-mentions in user-entered text into clickable
-// links. Used by the discussion thread (and anywhere else we render
-// free-form prose) so that pasting a Figma/Jira/etc. link or typing
-// "@P-12" / "@T-45" "just works" without any markdown syntax.
+// links or styled chips. Used by the discussion thread.
 //
-// Tokenizing rules:
-//  - URLs: match http(s):// and bare www. URLs, then strip common
-//    trailing punctuation (periods, commas, closing brackets) so a
-//    sentence like "see https://example.com." doesn't capture the
-//    period in the link.
-//  - Mentions: `@P-NN` and `@T-NN` (case-insensitive). The negative
-//    lookbehind `(?<!\w)` keeps us from matching inside something like
-//    `email@P-12.com`. The trailing `\b` keeps us from matching half of
-//    `@P-12foo`. Mentions resolve through the `mentions` prop — unknown
-//    IDs render as plain text rather than a broken link.
-const TOKEN_REGEX = /(https?:\/\/[^\s<>]+|www\.[^\s<>]+)|(?<!\w)@([PT]-\d+)\b/gi;
+// Tokenizing rules (in priority order inside the alternation):
+//  1. URLs: http(s):// and bare www. URLs. Common trailing punctuation is
+//     stripped so "see https://example.com." doesn't capture the period.
+//  2. Item mentions: `@P-NN` and `@T-NN` (case-insensitive). Resolves to
+//     a router Link via the `mentions` prop; unknown IDs render as plain text.
+//  3. User mentions: `@name` (alphabetic, no digits). These render as a
+//     styled highlight chip using the full name from the `userMentions` prop.
+//     Unknown names render as plain text so an accidental @word doesn't look
+//     broken.
+//
+// The negative lookbehind `(?<!\w)` on the @ patterns prevents matching
+// inside email addresses like "email@P-12.com".
+const TOKEN_REGEX =
+  /(https?:\/\/[^\s<>]+|www\.[^\s<>]+)|(?<!\w)@([PT]-\d+)\b|(?<!\w)@([A-Za-z]+)\b/gi;
 const TRAILING_PUNCT = /[)\].,;:!?'"]+$/;
 
 export interface Mention {
@@ -345,14 +346,21 @@ export interface Mention {
   name?: string;
 }
 
+/** Map keyed by lowercase first-name to the user's full display name. */
+export type UserMentions = Record<string, string>;
+
 export function Linkify({
   text,
   mentions,
+  userMentions,
 }: {
   text: string;
   /** Map keyed by canonical id (`P-12`, `T-45`, uppercase). When a
    *  mention isn't in this map it renders as plain text. */
   mentions?: Record<string, Mention>;
+  /** Map keyed by lowercase first name → full display name. Renders
+   *  user @mentions as a branded chip when matched. */
+  userMentions?: UserMentions;
 }) {
   if (!text) return null;
   const out: ReactNode[] = [];
@@ -364,6 +372,7 @@ export function Linkify({
     const raw = match[0];
     const urlMatch = match[1];
     const mentionId = match[2]?.toUpperCase();
+    const userHandle = match[3]?.toLowerCase();
 
     if (match.index > lastIndex) {
       out.push(
@@ -412,6 +421,24 @@ export function Linkify({
       } else {
         // Unknown ID — leave the raw text so we don't fake a working link.
         out.push(<Fragment key={`u-${match.index}`}>{raw}</Fragment>);
+      }
+    } else if (userHandle) {
+      const fullName = userMentions?.[userHandle];
+      if (fullName) {
+        // Known user — render a non-link chip so the mention is visible
+        // without requiring a user profile page.
+        out.push(
+          <span
+            key={`um-${match.index}`}
+            title={fullName}
+            className="rounded bg-brand-600/10 px-1 font-medium text-brand-700 dark:bg-brand-100/10 dark:text-brand-100"
+          >
+            @{fullName.split(" ")[0]}
+          </span>,
+        );
+      } else {
+        // Unknown handle — plain text so a stray @word doesn't look odd.
+        out.push(<Fragment key={`uu-${match.index}`}>{raw}</Fragment>);
       }
     }
 

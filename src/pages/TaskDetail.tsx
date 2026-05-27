@@ -92,7 +92,7 @@ export default function TaskDetail() {
   // canWrite gates the Edit / Delete affordances. RLS (migration 016)
   // also enforces the same rule, but the UI shouldn't tease viewers
   // with buttons that would silently fail.
-  const { canWrite } = useAuth();
+  const { canWrite, profile } = useAuth();
 
   // Server snapshot — what the DB last told us.
   const [task, setTask] = useState<Task | null>(null);
@@ -290,6 +290,23 @@ export default function TaskDetail() {
       setSaving(false);
       return;
     }
+    // Notify the new assignee if assignee_id just changed to someone
+    // other than the current user. We check diff.assignee_id rather than
+    // the full draft to avoid spurious notifications when other fields
+    // change alongside a no-op assignee field.
+    if (
+      diff.assignee_id !== undefined &&
+      diff.assignee_id &&
+      diff.assignee_id !== profile?.id
+    ) {
+      await supabase.from("notifications").insert({
+        user_id: diff.assignee_id,
+        type: "task_assignment",
+        actor_id: profile?.id ?? null,
+        task_id: task.id,
+      });
+    }
+
     // Mirror the touch_completed_at trigger (migration 014) on the
     // client so the "Completed" meta appears/disappears in the same
     // tick as the save — without this, the local snapshot keeps its

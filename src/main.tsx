@@ -4,6 +4,7 @@ import { HashRouter } from "react-router-dom";
 import App from "./App";
 import { ToastProvider } from "./components/Toast";
 import { AuthProvider } from "./context/AuthContext";
+import { NotificationProvider } from "./context/NotificationContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import "./index.css";
 
@@ -51,9 +52,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <HashRouter>
       <ThemeProvider>
         <AuthProvider>
-          <ToastProvider>
-            <App />
-          </ToastProvider>
+          <NotificationProvider>
+            <ToastProvider>
+              <App />
+            </ToastProvider>
+          </NotificationProvider>
         </AuthProvider>
       </ThemeProvider>
     </HashRouter>

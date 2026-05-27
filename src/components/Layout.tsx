@@ -15,6 +15,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { USER_ROLE_LABEL } from "../lib/types";
+import NotificationBell from "./NotificationBell";
 import { Avatar } from "./ui";
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -127,6 +128,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               </div>
             </div>
           </NavLink>
+          <NotificationBell />
           <button
             onClick={toggle}
             className="rounded-md p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-900"

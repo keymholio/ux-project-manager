@@ -10,6 +10,7 @@ import {
   Spinner,
   formatRelative,
   type Mention,
+  type UserMentions,
 } from "./ui";
 
 // One thread, targeted at either a project or a task. Exactly one of
@@ -30,6 +31,10 @@ export default function CommentThread({
   // mention. Unknown IDs (deleted, typo, etc.) fall back to plain text
   // inside Linkify.
   const [mentions, setMentions] = useState<Record<string, Mention>>({});
+  // Map of lowercase first-name → full display name for user @mentions.
+  // Built alongside `profiles` so Linkify can render @FirstName chips and
+  // the submit handler can resolve mentioned users for notifications.
+  const [userMentions, setUserMentions] = useState<UserMentions>({});
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -69,7 +74,18 @@ export default function CommentThread({
       ]);
       if (!active) return;
       setComments(cRes.data ?? []);
-      setProfiles(pRes.data ?? []);
+      const profs = (pRes.data ?? []) as Profile[];
+      setProfiles(profs);
+      // Build the user-mention lookup: first name (lowercase) → full name.
+      // If two people share the same first name, last one in wins — both
+      // get a chip rendered; the notification logic below handles them the
+      // same way (all matches get notified).
+      const uMap: UserMentions = {};
+      for (const p of profs) {
+        const firstName = p.full_name.split(/\s+/)[0].toLowerCase();
+        uMap[firstName] = p.full_name;
+      }
+      setUserMentions(uMap);
       const map: Record<string, Mention> = {};
       for (const p of (projRes.data ?? []) as {
         id: string;
@@ -144,6 +160,42 @@ export default function CommentThread({
         setComments((prev) =>
           prev.some((c) => c.id === data.id) ? prev : [...prev, data],
         );
+
+        // Fire notifications for any @FirstName mentions in the comment.
+        // We extract lowercase first-name tokens, look them up against the
+        // profiles list, and skip the author (you don't get notified for
+        // mentioning yourself).
+        const USER_MENTION_RE = /(?<!\w)@([A-Za-z]+)\b/g;
+        // Skip tokens that look like item mentions (@P-… / @T-…) — those
+        // are project/task references, not user mentions.
+        const ITEM_MENTION_RE = /^[PT]-?\d+$/i;
+        const mentionedNames = new Set<string>();
+        let m: RegExpExecArray | null;
+        USER_MENTION_RE.lastIndex = 0;
+        while ((m = USER_MENTION_RE.exec(body.trim())) !== null) {
+          if (!ITEM_MENTION_RE.test(m[1])) {
+            mentionedNames.add(m[1].toLowerCase());
+          }
+        }
+        if (mentionedNames.size > 0) {
+          const notifyUsers = profiles.filter(
+            (p) =>
+              p.id !== profile.id &&
+              mentionedNames.has(p.full_name.split(/\s+/)[0].toLowerCase()),
+          );
+          if (notifyUsers.length > 0) {
+            await supabase.from("notifications").insert(
+              notifyUsers.map((p) => ({
+                user_id: p.id,
+                type: "mention",
+                actor_id: profile.id,
+                task_id: taskId ?? null,
+                project_id: projectId ?? null,
+                comment_id: data.id,
+              })),
+            );
+          }
+        }
       }
     }
     setBusy(false);
@@ -308,7 +360,7 @@ export default function CommentThread({
                     </div>
                   ) : (
                     <div className="mt-0.5 whitespace-pre-wrap break-words text-sm text-ink-800">
-                      <Linkify text={c.body} mentions={mentions} />
+                      <Linkify text={c.body} mentions={mentions} userMentions={userMentions} />
                     </div>
                   )}
                 </div>
@@ -328,7 +380,7 @@ export default function CommentThread({
             <textarea
               className="input"
               rows={2}
-              placeholder="Add a comment, feedback, or handoff note. Use @P-12 or @T-45 to link a project/task."
+              placeholder="Add a comment. @FirstName to mention a teammate, @P-12 or @T-45 to link a project/task."
               value={body}
               onChange={(e) => setBody(e.target.value)}
               onKeyDown={(e) => {

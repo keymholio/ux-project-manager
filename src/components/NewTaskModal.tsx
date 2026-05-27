@@ -95,6 +95,17 @@ export default function NewTaskModal({
       setBusy(false);
       return;
     }
+
+    // Notify the assignee if they're someone other than the creator.
+    if (assigneeId && assigneeId !== profile.id) {
+      await supabase.from("notifications").insert({
+        user_id: assigneeId,
+        type: "task_assignment",
+        actor_id: profile.id,
+        task_id: data.id,
+      });
+    }
+
     onCreated(data);
   };
 

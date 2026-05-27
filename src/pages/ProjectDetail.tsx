@@ -106,7 +106,7 @@ export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
   const toast = useToast();
-  const { canWrite } = useAuth();
+  const { canWrite, profile } = useAuth();
 
   // Server snapshots — what the DB last told us.
   const [project, setProject] = useState<Project | null>(null);
@@ -418,6 +418,18 @@ export default function ProjectDetail() {
         setErr(error.message);
         setSaving(false);
         return;
+      }
+      // Notify each newly added assignee, excluding the person making the change.
+      const toNotify = toAdd.filter((uid) => uid !== profile?.id);
+      if (toNotify.length > 0) {
+        await supabase.from("notifications").insert(
+          toNotify.map((uid) => ({
+            user_id: uid,
+            type: "project_assignment",
+            actor_id: profile?.id ?? null,
+            project_id: project.id,
+          })),
+        );
       }
     }
     const toRemove = assigneeIds.filter((x) => !draftAssigneeIds.includes(x));
