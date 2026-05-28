@@ -1,5 +1,5 @@
 import { Pencil, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import type { Comment, Profile } from "../lib/types";
@@ -38,6 +38,16 @@ export default function CommentThread({
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // --- Mention typeahead state ---
+  // `mentionQuery` is the text the user has typed after `@` (may be empty
+  // string if they just hit @). null means no active mention.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  // Character index in `body` where the triggering `@` sits.
+  const [mentionStart, setMentionStart] = useState(-1);
+  // Which suggestion row the keyboard has highlighted.
+  const [activeSuggestion, setActiveSuggestion] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Inline edit state. Only one comment can be in edit mode at a time —
   // `editingId` doubles as the open/closed flag. `editBody` is the
   // working copy of the textarea; on save we diff against the server
@@ -135,6 +145,98 @@ export default function CommentThread({
       supabase.removeChannel(channel);
     };
   }, [filterColumn, filterValue]);
+
+  // --- Mention typeahead helpers ---
+
+  // Derive filtered suggestions from current mentionQuery.
+  const mentionSuggestions =
+    mentionQuery !== null
+      ? profiles
+          .filter(
+            (p) =>
+              (p.is_active ?? true) &&
+              p.role !== "viewer" &&
+              p.full_name.toLowerCase().startsWith(mentionQuery.toLowerCase()),
+          )
+          .sort((a, b) => a.full_name.localeCompare(b.full_name))
+          .slice(0, 6) // cap at 6 so the list stays compact
+      : [];
+
+  // Called whenever the composer textarea value changes. Detects whether
+  // the cursor is inside an active @mention token and updates state.
+  const handleBodyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setBody(val);
+
+    const cursor = e.target.selectionStart ?? val.length;
+    // Look backwards from the cursor for an `@` that starts a mention.
+    // We stop at whitespace/newline — those break the token. We also make
+    // sure the `@` isn't preceded by a word character (so email addresses
+    // like "foo@bar" don't accidentally trigger the dropdown).
+    const textToCursor = val.slice(0, cursor);
+    const atMatch = textToCursor.match(/(?:^|(?<=\s))@([A-Za-z]*)$/);
+    if (atMatch) {
+      const query = atMatch[1];
+      const atIndex = textToCursor.lastIndexOf("@");
+      setMentionQuery(query);
+      setMentionStart(atIndex);
+      setActiveSuggestion(0);
+    } else {
+      setMentionQuery(null);
+      setMentionStart(-1);
+    }
+  };
+
+  // Splices the selected teammate's first name into the body, replacing
+  // the partial `@…` token the user was typing.
+  const insertMention = (fullName: string) => {
+    const firstName = fullName.split(/\s+/)[0];
+    const cursor = textareaRef.current?.selectionStart ?? body.length;
+    const before = body.slice(0, mentionStart);
+    const after = body.slice(cursor);
+    const inserted = `@${firstName} `;
+    const newBody = `${before}${inserted}${after}`;
+    setBody(newBody);
+    setMentionQuery(null);
+    setMentionStart(-1);
+    // Restore focus and move cursor to just after the inserted mention.
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) return;
+      textareaRef.current.focus();
+      const pos = mentionStart + inserted.length;
+      textareaRef.current.setSelectionRange(pos, pos);
+    });
+  };
+
+  // Keyboard handler for the composer — delegates to the dropdown when
+  // a mention is active, otherwise falls through to normal shortcuts.
+  const handleBodyKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionQuery !== null && mentionSuggestions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveSuggestion((i) => Math.min(i + 1, mentionSuggestions.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveSuggestion((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insertMention(mentionSuggestions[activeSuggestion].full_name);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionQuery(null);
+        setMentionStart(-1);
+        return;
+      }
+    }
+    // Normal submit shortcut when no dropdown is open.
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+  };
 
   const submit = async () => {
     if (!body.trim() || !profile) return;
@@ -376,16 +478,58 @@ export default function CommentThread({
       {canWrite && (
         <div className="mt-4 flex gap-2">
           <Avatar profile={profile} size={28} />
-          <div className="flex-1">
+          <div className="relative flex-1">
+            {/* Mention typeahead dropdown — floats above the textarea */}
+            {mentionQuery !== null && mentionSuggestions.length > 0 && (
+              <ul
+                className="absolute bottom-full mb-1 left-0 z-50 w-56 overflow-hidden rounded-md border border-ink-200 bg-surface shadow-lg"
+                role="listbox"
+                aria-label="Mention suggestions"
+              >
+                {mentionSuggestions.map((p, i) => (
+                  <li key={p.id} role="option" aria-selected={i === activeSuggestion}>
+                    <button
+                      type="button"
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition ${
+                        i === activeSuggestion
+                          ? "bg-brand-600 text-white"
+                          : "text-ink-800 hover:bg-ink-100"
+                      }`}
+                      onMouseDown={(e) => {
+                        // mousedown fires before the textarea loses focus,
+                        // so we prevent the blur that would close the dropdown
+                        // before the click can register.
+                        e.preventDefault();
+                        insertMention(p.full_name);
+                      }}
+                      onMouseEnter={() => setActiveSuggestion(i)}
+                    >
+                      <span
+                        className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                        style={{ backgroundColor: p.avatar_color }}
+                      >
+                        {p.full_name
+                          .split(/\s+/)
+                          .map((n) => n[0])
+                          .slice(0, 2)
+                          .join("")
+                          .toUpperCase()}
+                      </span>
+                      {p.full_name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
             <textarea
+              ref={textareaRef}
               className="input"
               rows={2}
               placeholder="Add a comment. @FirstName to mention a teammate, @P-12 or @T-45 to link a project/task."
               value={body}
-              onChange={(e) => setBody(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
-              }}
+              onChange={handleBodyChange}
+              onKeyDown={handleBodyKeyDown}
             />
             <div className="mt-1 flex items-center justify-between">
               <span className="text-xs text-ink-400">⌘/Ctrl + Enter to send</span>
