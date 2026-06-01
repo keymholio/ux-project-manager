@@ -128,6 +128,10 @@ export interface Project {
   links: ProjectLink[];
   owner_id: string;
   completed_at: string | null;
+  // Soft-delete timestamp (migration 024). RLS filters rows where this
+  // is non-null out of SELECT, so reads typically never see it set —
+  // it only matters to the DeleteProjectModal undo flow.
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -159,6 +163,8 @@ export interface Task {
   created_by: string;
   position: number;
   completed_at: string | null;
+  // Soft-delete timestamp (migration 024). See Project.deleted_at.
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }

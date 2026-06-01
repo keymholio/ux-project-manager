@@ -10,6 +10,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import CommentThread from "../components/CommentThread";
+import { DeleteProjectModal } from "../components/DeleteProjectModal";
 import NewTaskModal from "../components/NewTaskModal";
 import { useToast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
@@ -130,6 +131,11 @@ export default function ProjectDetail() {
   // Save state for the sticky bar at the bottom of the page.
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // Delete-project modal. We open it instead of using window.confirm so
+  // users with existing tasks get an explicit choice (reassign vs. delete);
+  // see DeleteProjectModal for the full flow.
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // Toggle for the inline "Add task" modal in the Tasks section. The
   // modal is the same NewTaskModal used on the TaskBoard, opened with
@@ -499,15 +505,12 @@ export default function ProjectDetail() {
     setMode("view");
   };
 
-  const deleteProject = async () => {
+  // Opens the delete modal. The modal handles the task-disposition choice
+  // (reassign vs. delete) and the actual DB calls; we just navigate away
+  // on success.
+  const requestDelete = () => {
     if (!project) return;
-    if (!confirm(`Delete "${project.name}"? This can't be undone.`)) return;
-    const { error } = await supabase.from("projects").delete().eq("id", project.id);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    nav("/projects");
+    setShowDeleteModal(true);
   };
 
   // Delete a task from the inline row in the Tasks section. Optimistic
@@ -622,7 +625,7 @@ export default function ProjectDetail() {
           )}
           {canWrite && (
             <Button
-              onClick={deleteProject}
+              onClick={requestDelete}
               icon={<Trash2 size={14} />}
               className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
             >
@@ -1086,6 +1089,17 @@ export default function ProjectDetail() {
 
       {/* Comments */}
       <CommentThread projectId={project.id} />
+
+      <DeleteProjectModal
+        open={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        project={project}
+        taskCount={tasks.length}
+        onDeleted={() => {
+          setShowDeleteModal(false);
+          nav("/projects");
+        }}
+      />
 
       {creatingTask && (
         <NewTaskModal
