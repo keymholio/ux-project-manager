@@ -1148,7 +1148,7 @@ function NewProjectModal({
           {/* Toggle chips across the entire library. Colored-in when
               applied, neutral when off. New labels can be created inline
               without leaving the modal. */}
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex flex-wrap gap-1">
             {labels.map((l) => {
               const selected = selectedLabels.includes(l.id);
               return (
@@ -1160,16 +1160,11 @@ function NewProjectModal({
                       selected ? prev.filter((x) => x !== l.id) : [...prev, l.id],
                     )
                   }
-                  className="chip"
-                  style={
+                  className={`chip ${
                     selected
-                      ? { background: l.color, color: "white" }
-                      : {
-                          background: "#f1f5f9",
-                          color: "#334155",
-                          border: `1px solid ${l.color}`,
-                        }
-                  }
+                      ? "bg-brand-600 text-white"
+                      : "bg-ink-100 text-ink-700"
+                  }`}
                 >
                   {l.name}
                 </button>
