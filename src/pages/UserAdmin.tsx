@@ -1,4 +1,4 @@
-import { Check, KeyRound, Mail, Plus, Power, PowerOff } from "lucide-react";
+import { Check, KeyRound, Mail, Plus, Power, PowerOff, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { Avatar, Breadcrumbs, Button, Modal, Spinner } from "../components/ui";
@@ -65,6 +65,7 @@ export default function UserAdmin() {
   const [err, setErr] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [resetTarget, setResetTarget] = useState<Profile | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
 
   const load = async () => {
     const { data, error } = await supabase
@@ -433,15 +434,25 @@ export default function UserAdmin() {
                   <td className="px-3 py-2 text-right">
                     <div className="flex items-center justify-end gap-2">
                       {!isSelf && (
-                        <button
-                          type="button"
-                          onClick={() => setResetTarget(original)}
-                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-ink-100 hover:text-ink-900"
-                          title="Send password reset link"
-                        >
-                          <KeyRound size={13} />
-                          Reset pw
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setResetTarget(original)}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-ink-100 hover:text-ink-900"
+                            title="Send password reset link"
+                          >
+                            <KeyRound size={13} />
+                            Reset pw
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(original)}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-rose-500 hover:bg-rose-50 hover:text-rose-700"
+                            title="Delete user"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </>
                       )}
                       {justSaved && !dirty ? (
                         <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700">
@@ -476,8 +487,8 @@ export default function UserAdmin() {
       </div>
 
       <p className="text-xs text-ink-500">
-        New users are created from Supabase Auth. When they sign in for the
-        first time a profile row is auto-generated and will appear here.
+        Use "Add user" to create an account with a temporary password. The user
+        will be prompted to set a new password on their first login.
       </p>
 
       <AddUserModal open={adding} onClose={() => setAdding(false)} />
@@ -485,7 +496,126 @@ export default function UserAdmin() {
         target={resetTarget}
         onClose={() => setResetTarget(null)}
       />
+      <DeleteUserModal
+        target={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onDeleted={(id) => {
+          setProfiles((prev) => prev.filter((p) => p.id !== id));
+          setDeleteTarget(null);
+        }}
+      />
     </div>
+  );
+}
+
+// =============================================================================
+// Delete User modal — calls the delete-user Edge Function which verifies the
+// caller is a manager, checks for FK blockers, then hard-deletes the auth user.
+// The profile row cascades automatically.
+// =============================================================================
+function DeleteUserModal({
+  target,
+  onClose,
+  onDeleted,
+}: {
+  target: Profile | null;
+  onClose: () => void;
+  onDeleted: (id: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const open = target !== null;
+
+  useEffect(() => {
+    if (open) {
+      setBusy(false);
+      setErr(null);
+    }
+  }, [open]);
+
+  const handleDelete = async () => {
+    if (!target) return;
+    setBusy(true);
+    setErr(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("delete-user", {
+        body: { userId: target.id },
+      });
+
+      setBusy(false);
+
+      if (error) {
+        // error.context is the raw Response for FunctionsHttpError — try to
+        // pull the JSON body message out of it for a readable error.
+        let msg = "Failed to delete user.";
+        try {
+          const body = await (error as { context?: Response }).context?.json();
+          if (body?.error) msg = body.error;
+        } catch {
+          if (error instanceof Error && error.message) msg = error.message;
+        }
+        setErr(msg);
+        return;
+      }
+
+      if (!data?.success) {
+        setErr("Delete did not complete. Make sure the delete-user edge function is deployed in Supabase.");
+        return;
+      }
+
+      onDeleted(target.id);
+    } catch (e) {
+      setBusy(false);
+      setErr(e instanceof Error ? e.message : "Unexpected error.");
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Delete user"
+      dismissOnBackdropClick={false}
+    >
+      <div className="space-y-4">
+        <p className="text-sm text-ink-700">
+          Permanently delete{" "}
+          <span className="font-medium">{target?.full_name}</span>? This removes
+          their account and cannot be undone.
+        </p>
+        <p className="text-sm text-ink-500">
+          Their assigned tasks will become unassigned. Comments and project
+          history they authored will be removed.
+        </p>
+
+        {err && (
+          <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+            {err}
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button
+            variant="secondary"
+            onClick={onClose}
+            type="button"
+            disabled={busy}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleDelete}
+            disabled={busy}
+            className="bg-rose-600 hover:bg-rose-700 focus-visible:ring-rose-500"
+          >
+            {busy ? <Spinner /> : "Delete account"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -594,10 +724,9 @@ function ResetPasswordModal({
 }
 
 // =============================================================================
-// Add User modal — sends a magic-link invite via Supabase Auth.
-// The new user receives an email; when they click the link and sign in,
-// their profile row is auto-generated by the handle_new_user trigger.
-// The manager can then set their role and color from the table above.
+// Add User modal — creates an account via the create-user Edge Function with
+// a manager-set temporary password. The user is prompted to change it on
+// their first login via the must_change_password flag in user_metadata.
 // =============================================================================
 function AddUserModal({
   open,
@@ -608,68 +737,74 @@ function AddUserModal({
 }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Reset form state whenever the modal opens.
   useEffect(() => {
     if (open) {
       setEmail("");
       setName("");
+      setPassword("");
       setBusy(false);
-      setSent(false);
+      setDone(false);
       setErr(null);
     }
   }, [open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmedEmail = email.trim();
-    const trimmedName = name.trim();
-    if (!trimmedEmail.includes("@")) {
+    if (!email.trim().includes("@")) {
       setErr("Please enter a valid email address.");
+      return;
+    }
+    if (password.length < 8) {
+      setErr("Temporary password must be at least 8 characters.");
       return;
     }
     setBusy(true);
     setErr(null);
-    const { error } = await supabase.auth.signInWithOtp({
-      email: trimmedEmail,
-      options: {
-        shouldCreateUser: true,
-        emailRedirectTo: window.location.origin,
-        // full_name is picked up by the handle_new_user trigger so the
-        // profile row starts with a real name instead of the email prefix.
-        data: trimmedName ? { full_name: trimmedName } : undefined,
-      },
+
+    const { data, error } = await supabase.functions.invoke("create-user", {
+      body: { email: email.trim(), name: name.trim(), password },
     });
+
     setBusy(false);
-    if (error) {
-      setErr(error.message);
+
+    if (error || !data?.success) {
+      let msg = "Failed to create account.";
+      try {
+        const body = await (error as { context?: Response }).context?.json();
+        if (body?.error) msg = body.error;
+      } catch {
+        if (error instanceof Error && error.message) msg = error.message;
+      }
+      setErr(msg);
       return;
     }
-    setSent(true);
+
+    setDone(true);
   };
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Invite new user"
+      title="Add user"
       dismissOnBackdropClick={false}
     >
-      {sent ? (
+      {done ? (
         <div className="space-y-4">
           <div className="flex items-start gap-3 rounded-lg bg-emerald-50 p-4 dark:bg-emerald-500/10">
-            <Mail size={18} className="mt-0.5 flex-shrink-0 text-emerald-600" />
+            <Check size={18} className="mt-0.5 flex-shrink-0 text-emerald-600" />
             <div>
               <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
-                Invite sent to {email}
+                Account created for {email}
               </p>
               <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
-                They'll receive a magic link to sign in. Once they log in for
-                the first time, their profile will appear here and you can set
-                their role and avatar color.
+                Share their temporary password with them — they'll be prompted
+                to change it on first login.
               </p>
             </div>
           </div>
@@ -712,8 +847,25 @@ function AddUserModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-ink-700">
+              Temporary password <span className="text-rose-500">*</span>
+            </label>
+            <input
+              className="input w-full"
+              type="password"
+              placeholder="Min. 8 characters"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setErr(null);
+              }}
+              required
+            />
             <p className="mt-1 text-xs text-ink-400">
-              Pre-fills their display name when they first sign in.
+              Share this with the user — they'll be asked to set a new one on
+              first login.
             </p>
           </div>
 
@@ -733,7 +885,7 @@ function AddUserModal({
               Cancel
             </Button>
             <Button variant="primary" type="submit" disabled={busy}>
-              {busy ? <Spinner /> : "Send invite"}
+              {busy ? <Spinner /> : "Create account"}
             </Button>
           </div>
         </form>

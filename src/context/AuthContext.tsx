@@ -20,6 +20,9 @@ interface AuthContextValue {
   // is a UX gate, not a security boundary.
   canWrite: boolean;
   isRecovering: boolean;
+  // True when the user arrived via a magic-link invite (first login, no
+  // password set yet) as opposed to a password-reset link.
+  isNewAccount: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   requestPasswordReset: (
@@ -37,18 +40,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRecovering, setIsRecovering] = useState(false);
+  const [isNewAccount, setIsNewAccount] = useState(false);
 
   useEffect(() => {
     let active = true;
+    // Tracks what kind of auth link init() detected from the URL hash so the
+    // onAuthStateChange handler below can tell recovery links apart from
+    // invite links without racing on React state.
+    let urlLinkType: "recovery" | "invite" | null = null;
 
     const init = async () => {
-      // First, consume any auth hash captured by main.tsx before HashRouter
-      // could clobber it. Supabase's automatic detectSessionInUrl can't
-      // read the original hash by the time the client is initialized
-      // (HashRouter has already rewritten it to `#/`), so we restore the
-      // session manually with setSession. PASSWORD_RECOVERY won't fire from
-      // onAuthStateChange in this flow either, so we infer recovery from
-      // the captured `type=recovery` param.
       const captured = window.__initialAuthHash;
       if (captured) {
         delete window.__initialAuthHash;
@@ -57,38 +58,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const refresh_token = params.get("refresh_token");
         const type = params.get("type");
         if (access_token && refresh_token) {
+          // Mark the link type BEFORE setSession() so it's visible to
+          // onAuthStateChange when it fires synchronously inside setSession.
+          if (type === "recovery") urlLinkType = "recovery";
+          if (type === "magiclink" || type === "signup") urlLinkType = "invite";
           const { data, error } = await supabase.auth.setSession({
             access_token,
             refresh_token,
           });
           if (!active) return;
           if (!error) {
-            if (type === "recovery") setIsRecovering(true);
             setSession(data.session);
             if (!data.session) setLoading(false);
             return;
           }
+          urlLinkType = null;
           // Fall through to getSession on error — token may have expired.
         }
       }
       const { data } = await supabase.auth.getSession();
       if (!active) return;
       setSession(data.session);
-      if (!data.session) setLoading(false);
+      if (!data.session) {
+        setLoading(false);
+      } else if (data.session.user.user_metadata?.must_change_password) {
+        // Page-refresh case: INITIAL_SESSION won't fire SIGNED_IN, so we
+        // catch the flag here too.
+        setIsRecovering(true);
+        setIsNewAccount(true);
+      }
     };
     init();
 
     const { data: sub } = supabase.auth.onAuthStateChange((evt, newSession) => {
       setSession(newSession);
-      // When the user clicks a password-reset link from email, Supabase fires
-      // PASSWORD_RECOVERY with a short-lived session. We stash a flag so the
-      // app shows the "set new password" screen instead of the normal UI.
-      // (Note: with HashRouter we usually catch recovery via the captured
-      // hash in init() above; this branch covers any path where Supabase's
-      // own URL detection still fires the event.)
+
       if (evt === "PASSWORD_RECOVERY") {
+        // Covers the rare case where Supabase fires this event directly
+        // (i.e. detectSessionInUrl works outside HashRouter context).
         setIsRecovering(true);
       }
+
+      // INITIAL_SESSION fires on page-load with an existing session;
+      // SIGNED_IN fires on a fresh login. Handle must_change_password in both.
+      if ((evt === "SIGNED_IN" || evt === "INITIAL_SESSION") && newSession) {
+        if (newSession.user.user_metadata?.must_change_password) {
+          // Account was created with a temporary password by a manager.
+          setIsNewAccount(true);
+          setIsRecovering(true);
+        } else if (urlLinkType === "recovery") {
+          setIsRecovering(true);
+          urlLinkType = null;
+        } else if (urlLinkType === "invite") {
+          setIsRecovering(true);
+          setIsNewAccount(true);
+          urlLinkType = null;
+        }
+      }
+
       if (!newSession) {
         setProfile(null);
         setLoading(false);
@@ -129,10 +156,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session?.user?.id]);
 
   const signIn: AuthContextValue["signIn"] = async (email, password) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+    // Check flag immediately on the auth response — don't rely solely on
+    // onAuthStateChange, which can race or be skipped in some environments.
+    if (!error && data.user?.user_metadata?.must_change_password) {
+      setIsRecovering(true);
+      setIsNewAccount(true);
+    }
     return { error: error?.message ?? null };
   };
 
@@ -163,12 +196,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updatePassword: AuthContextValue["updatePassword"] = async (
     newPassword,
   ) => {
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    if (!error) setIsRecovering(false);
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword,
+      data: { must_change_password: false },
+    });
+    if (!error) { setIsRecovering(false); setIsNewAccount(false); }
     return { error: error?.message ?? null };
   };
 
-  const clearRecovery = () => setIsRecovering(false);
+  const clearRecovery = () => { setIsRecovering(false); setIsNewAccount(false); };
 
   const refreshProfile = async () => {
     if (!session?.user) return;
@@ -192,6 +228,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isManager: profile?.role === "manager",
     canWrite: profile?.role === "manager" || profile?.role === "designer",
     isRecovering,
+    isNewAccount,
     signIn,
     signOut,
     requestPasswordReset,

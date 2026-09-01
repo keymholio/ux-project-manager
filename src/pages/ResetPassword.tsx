@@ -3,7 +3,7 @@ import { Button, Spinner } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
 
 export default function ResetPassword() {
-  const { updatePassword, signOut } = useAuth();
+  const { updatePassword, signOut, isNewAccount } = useAuth();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -40,10 +40,12 @@ export default function ResetPassword() {
           </div>
           <div>
             <div className="text-base font-semibold text-ink-900">
-              Set a new password
+              {isNewAccount ? "Welcome! Set your password" : "Set a new password"}
             </div>
             <div className="text-xs text-ink-500">
-              Choose something you haven't used before.
+              {isNewAccount
+                ? "Choose a password to secure your account."
+                : "Choose something you haven't used before."}
             </div>
           </div>
         </div>

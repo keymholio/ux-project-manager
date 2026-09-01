@@ -2,11 +2,11 @@ import { Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Avatar, Button, Spinner } from "../components/ui";
 import { useAuth } from "../context/AuthContext";
+import { supabase } from "../lib/supabase";
 import {
   useTheme,
   type ThemePreference,
 } from "../context/ThemeContext";
-import { supabase } from "../lib/supabase";
 
 // Curated palette of avatar colors. Users can also type a custom hex.
 const COLOR_PRESETS = [
@@ -25,7 +25,7 @@ const COLOR_PRESETS = [
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 export default function Settings() {
-  const { profile, refreshProfile } = useAuth();
+  const { profile, refreshProfile, updatePassword } = useAuth();
   const { preference: themePreference, setPreference: setThemePreference } =
     useTheme();
 
@@ -223,6 +223,22 @@ export default function Settings() {
         </div>
       </form>
 
+      {/* Change password */}
+      <div className="card mt-6 p-5">
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-ink-900">
+            Change password
+          </h2>
+          <p className="mt-1 text-xs text-ink-500">
+            Confirm your current password, then choose a new one.
+          </p>
+        </div>
+        <ChangePasswordForm
+          email={profile.email}
+          updatePassword={updatePassword}
+        />
+      </div>
+
       {/*
        * Appearance — separate card so theme changes don't share the
        * profile form's dirty/save flow. Theme is applied immediately on
@@ -278,5 +294,125 @@ export default function Settings() {
         </div>
       </div>
     </div>
+  );
+}
+
+function ChangePasswordForm({
+  email,
+  updatePassword,
+}: {
+  email: string;
+  updatePassword: (pw: string) => Promise<{ error: string | null }>;
+}) {
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setInfo(null);
+
+    if (newPw.length < 8) {
+      setError("New password must be at least 8 characters.");
+      return;
+    }
+    if (newPw !== confirmPw) {
+      setError("Passwords don't match.");
+      return;
+    }
+
+    setBusy(true);
+
+    // Verify the current password before updating.
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password: currentPw,
+    });
+    if (signInError) {
+      setBusy(false);
+      setError("Current password is incorrect.");
+      return;
+    }
+
+    const { error: updateError } = await updatePassword(newPw);
+    setBusy(false);
+
+    if (updateError) {
+      setError(updateError);
+      return;
+    }
+
+    setCurrentPw("");
+    setNewPw("");
+    setConfirmPw("");
+    setInfo("Password updated successfully.");
+  };
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-4">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-ink-600">
+          Current password
+        </label>
+        <input
+          className="input"
+          type="password"
+          value={currentPw}
+          onChange={(e) => { setCurrentPw(e.target.value); setError(null); }}
+          autoComplete="current-password"
+          required
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-ink-600">
+          New password
+        </label>
+        <input
+          className="input"
+          type="password"
+          value={newPw}
+          onChange={(e) => { setNewPw(e.target.value); setError(null); }}
+          autoComplete="new-password"
+          placeholder="Min. 8 characters"
+          required
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-ink-600">
+          Confirm new password
+        </label>
+        <input
+          className="input"
+          type="password"
+          value={confirmPw}
+          onChange={(e) => { setConfirmPw(e.target.value); setError(null); }}
+          autoComplete="new-password"
+          required
+        />
+      </div>
+
+      {error && (
+        <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+          {error}
+        </div>
+      )}
+      {info && (
+        <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
+          {info}
+        </div>
+      )}
+
+      <Button
+        type="submit"
+        variant="primary"
+        disabled={busy || !currentPw || !newPw || !confirmPw}
+      >
+        {busy ? <Spinner /> : "Update password"}
+      </Button>
+    </form>
   );
 }
