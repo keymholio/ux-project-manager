@@ -1,28 +1,15 @@
 import { ArrowRight } from "lucide-react";
-import { Navigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { REPORTS, type ReportDef } from "../lib/reports";
 
-// Reports landing page — a grid of cards, one per report. Clicking a
-// card opens the per-report detail view at /reports/:slug.
-//
-// Scoping: manager-only for now, matching the Users page pattern. Most
-// of these reports are team-wide rollups that wouldn't be meaningful
-// (and in some cases not appropriate) for a designer to see about their
-// peers. The route guard here mirrors UserAdmin.tsx — RLS would still
-// be the real security boundary if any of these queries become
-// privileged later.
 export default function Reports() {
-  const { isManager, loading } = useAuth();
+  const { loading } = useAuth();
 
   if (loading) {
     return (
       <div className="p-4 sm:p-6 text-sm text-ink-500">Loading…</div>
     );
-  }
-
-  if (!isManager) {
-    return <Navigate to="/" replace />;
   }
 
   return (

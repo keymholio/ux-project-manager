@@ -1,4 +1,4 @@
-import { Check, Mail, Plus, Power, PowerOff } from "lucide-react";
+import { Check, KeyRound, Mail, Plus, Power, PowerOff } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { Avatar, Breadcrumbs, Button, Modal, Spinner } from "../components/ui";
@@ -64,6 +64,7 @@ export default function UserAdmin() {
   const [savedId, setSavedId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [resetTarget, setResetTarget] = useState<Profile | null>(null);
 
   const load = async () => {
     const { data, error } = await supabase
@@ -430,31 +431,42 @@ export default function UserAdmin() {
 
                   {/* Actions */}
                   <td className="px-3 py-2 text-right">
-                    {justSaved && !dirty ? (
-                      <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700">
-                        <Check size={14} /> Saved
-                      </span>
-                    ) : dirty ? (
-                      <div className="flex items-center justify-end gap-2">
+                    <div className="flex items-center justify-end gap-2">
+                      {!isSelf && (
                         <button
                           type="button"
-                          onClick={() => discard(original.id)}
-                          disabled={busy}
-                          className="text-xs text-ink-500 hover:text-ink-900"
+                          onClick={() => setResetTarget(original)}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-ink-100 hover:text-ink-900"
+                          title="Send password reset link"
                         >
-                          Discard
+                          <KeyRound size={13} />
+                          Reset pw
                         </button>
-                        <Button
-                          variant="primary"
-                          onClick={() => save(original.id)}
-                          disabled={busy}
-                        >
-                          {busy ? <Spinner /> : "Save"}
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-ink-400">—</span>
-                    )}
+                      )}
+                      {justSaved && !dirty ? (
+                        <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700">
+                          <Check size={14} /> Saved
+                        </span>
+                      ) : dirty ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => discard(original.id)}
+                            disabled={busy}
+                            className="text-xs text-ink-500 hover:text-ink-900"
+                          >
+                            Discard
+                          </button>
+                          <Button
+                            variant="primary"
+                            onClick={() => save(original.id)}
+                            disabled={busy}
+                          >
+                            {busy ? <Spinner /> : "Save"}
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               );
@@ -469,7 +481,166 @@ export default function UserAdmin() {
       </p>
 
       <AddUserModal open={adding} onClose={() => setAdding(false)} />
+      <SetPasswordModal
+        target={resetTarget}
+        onClose={() => setResetTarget(null)}
+      />
     </div>
+  );
+}
+
+// =============================================================================
+// Set Password modal — directly sets a user's password via the
+// set-user-password Edge Function (which uses the service role key server-side).
+// =============================================================================
+function SetPasswordModal({
+  target,
+  onClose,
+}: {
+  target: Profile | null;
+  onClose: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const open = target !== null;
+
+  useEffect(() => {
+    if (open) {
+      setPassword("");
+      setConfirm("");
+      setBusy(false);
+      setDone(false);
+      setErr(null);
+    }
+  }, [open]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.length < 8) {
+      setErr("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirm) {
+      setErr("Passwords don't match.");
+      return;
+    }
+    if (!target) return;
+
+    setBusy(true);
+    setErr(null);
+
+    const { error } = await supabase.functions.invoke("set-user-password", {
+      body: { userId: target.id, password },
+    });
+
+    setBusy(false);
+
+    if (error) {
+      // functions.invoke wraps HTTP errors; surface the message if available.
+      const msg =
+        error instanceof Error ? error.message : "Failed to set password.";
+      setErr(msg);
+      return;
+    }
+
+    setDone(true);
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Set password"
+      dismissOnBackdropClick={false}
+    >
+      {done ? (
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 rounded-lg bg-emerald-50 p-4 dark:bg-emerald-500/10">
+            <Check
+              size={18}
+              className="mt-0.5 flex-shrink-0 text-emerald-600"
+            />
+            <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+              Password updated for {target?.full_name}.
+            </p>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={onClose}>
+              Done
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <p className="text-sm text-ink-500">
+            Setting a new password for{" "}
+            <span className="font-medium text-ink-900">
+              {target?.full_name}
+            </span>
+            . They can change it again from their own Settings page.
+          </p>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-ink-700">
+              New password <span className="text-rose-500">*</span>
+            </label>
+            <input
+              className="input w-full"
+              type="password"
+              placeholder="Min 8 characters"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setErr(null);
+              }}
+              autoFocus
+              required
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-ink-700">
+              Confirm password <span className="text-rose-500">*</span>
+            </label>
+            <input
+              className="input w-full"
+              type="password"
+              placeholder="Repeat password"
+              value={confirm}
+              onChange={(e) => {
+                setConfirm(e.target.value);
+                setErr(null);
+              }}
+              required
+            />
+          </div>
+
+          {err && (
+            <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+              {err}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              variant="secondary"
+              onClick={onClose}
+              type="button"
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" disabled={busy}>
+              {busy ? <Spinner /> : "Set password"}
+            </Button>
+          </div>
+        </form>
+      )}
+    </Modal>
   );
 }
 

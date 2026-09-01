@@ -20,7 +20,7 @@ import WeeklyDigest from "./reports/WeeklyDigest";
 // into its own file (e.g. src/pages/reports/WeeklyDigest.tsx) and
 // dispatch on slug here.
 export default function ReportDetail() {
-  const { isManager, loading } = useAuth();
+  const { loading } = useAuth();
   const { slug } = useParams<{ slug: string }>();
   const report = findReport(slug);
 
@@ -28,10 +28,6 @@ export default function ReportDetail() {
     return (
       <div className="p-4 sm:p-6 text-sm text-ink-500">Loading…</div>
     );
-  }
-
-  if (!isManager) {
-    return <Navigate to="/" replace />;
   }
 
   // Unknown slug — bounce back to the hub rather than show a half-broken
