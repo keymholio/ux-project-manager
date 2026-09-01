@@ -481,7 +481,7 @@ export default function UserAdmin() {
       </p>
 
       <AddUserModal open={adding} onClose={() => setAdding(false)} />
-      <SetPasswordModal
+      <ResetPasswordModal
         target={resetTarget}
         onClose={() => setResetTarget(null)}
       />
@@ -490,83 +490,65 @@ export default function UserAdmin() {
 }
 
 // =============================================================================
-// Set Password modal — directly sets a user's password via the
-// set-user-password Edge Function (which uses the service role key server-side).
+// Reset Password modal — sends a Supabase password-reset email on behalf of
+// the selected user. The user receives a link and chooses their own new password.
 // =============================================================================
-function SetPasswordModal({
+function ResetPasswordModal({
   target,
   onClose,
 }: {
   target: Profile | null;
   onClose: () => void;
 }) {
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
+  const [sent, setSent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const open = target !== null;
 
   useEffect(() => {
     if (open) {
-      setPassword("");
-      setConfirm("");
       setBusy(false);
-      setDone(false);
+      setSent(false);
       setErr(null);
     }
   }, [open]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password.length < 8) {
-      setErr("Password must be at least 8 characters.");
-      return;
-    }
-    if (password !== confirm) {
-      setErr("Passwords don't match.");
-      return;
-    }
+  const handleSend = async () => {
     if (!target) return;
-
     setBusy(true);
     setErr(null);
-
-    const { error } = await supabase.functions.invoke("set-user-password", {
-      body: { userId: target.id, password },
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { error } = await supabase.auth.resetPasswordForEmail(target.email, {
+      redirectTo,
     });
-
     setBusy(false);
-
     if (error) {
-      // functions.invoke wraps HTTP errors; surface the message if available.
-      const msg =
-        error instanceof Error ? error.message : "Failed to set password.";
-      setErr(msg);
+      setErr(error.message);
       return;
     }
-
-    setDone(true);
+    setSent(true);
   };
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Set password"
+      title="Reset password"
       dismissOnBackdropClick={false}
     >
-      {done ? (
+      {sent ? (
         <div className="space-y-4">
           <div className="flex items-start gap-3 rounded-lg bg-emerald-50 p-4 dark:bg-emerald-500/10">
-            <Check
-              size={18}
-              className="mt-0.5 flex-shrink-0 text-emerald-600"
-            />
-            <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
-              Password updated for {target?.full_name}.
-            </p>
+            <Mail size={18} className="mt-0.5 flex-shrink-0 text-emerald-600" />
+            <div>
+              <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+                Reset link sent to {target?.email}
+              </p>
+              <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
+                They'll receive an email with a link to choose a new password.
+              </p>
+            </div>
           </div>
           <div className="flex justify-end">
             <Button variant="secondary" onClick={onClose}>
@@ -575,49 +557,16 @@ function SetPasswordModal({
           </div>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <p className="text-sm text-ink-500">
-            Setting a new password for{" "}
-            <span className="font-medium text-ink-900">
-              {target?.full_name}
-            </span>
-            . They can change it again from their own Settings page.
+        <div className="space-y-4">
+          <p className="text-sm text-ink-700">
+            Send a password reset link to{" "}
+            <span className="font-medium">{target?.full_name}</span>?
           </p>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-ink-700">
-              New password <span className="text-rose-500">*</span>
-            </label>
-            <input
-              className="input w-full"
-              type="password"
-              placeholder="Min 8 characters"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setErr(null);
-              }}
-              autoFocus
-              required
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-ink-700">
-              Confirm password <span className="text-rose-500">*</span>
-            </label>
-            <input
-              className="input w-full"
-              type="password"
-              placeholder="Repeat password"
-              value={confirm}
-              onChange={(e) => {
-                setConfirm(e.target.value);
-                setErr(null);
-              }}
-              required
-            />
-          </div>
+          <p className="text-sm text-ink-500">
+            An email will be sent to{" "}
+            <span className="font-mono text-xs">{target?.email}</span>. They
+            can follow the link to set a new password.
+          </p>
 
           {err && (
             <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
@@ -634,11 +583,11 @@ function SetPasswordModal({
             >
               Cancel
             </Button>
-            <Button variant="primary" type="submit" disabled={busy}>
-              {busy ? <Spinner /> : "Set password"}
+            <Button variant="primary" onClick={handleSend} disabled={busy}>
+              {busy ? <Spinner /> : "Send reset link"}
             </Button>
           </div>
-        </form>
+        </div>
       )}
     </Modal>
   );
