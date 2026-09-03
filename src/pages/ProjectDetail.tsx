@@ -5,12 +5,13 @@ import {
   Pencil,
   Plus,
   Trash2,
-  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { AssigneeDropdown } from "../components/AssigneeDropdown";
 import CommentThread from "../components/CommentThread";
 import { DeleteProjectModal } from "../components/DeleteProjectModal";
+import { LabelTypeahead } from "../components/LabelTypeahead";
 import NewTaskModal from "../components/NewTaskModal";
 import { useToast } from "../components/Toast";
 import { useAuth } from "../context/AuthContext";
@@ -702,7 +703,7 @@ export default function ProjectDetail() {
             </span>
           )}
         </Meta>
-        <Meta label="Due date (optional)">
+        <Meta label="Due date">
           {isEditing ? (
             <input
               className="input"
@@ -747,44 +748,37 @@ export default function ProjectDetail() {
       </section>
 
       {/* Labels */}
-      {isEditing ? (
-        <LabelsEditor
-          labels={labels}
-          selectedIds={draftLabelIds}
-          onToggle={toggleLabel}
-          onCreate={createLabel}
-        />
-      ) : (
-        <section className="card p-4">
-          <h2 className="mb-2 text-sm font-semibold text-ink-900">Labels</h2>
-          {(() => {
-            // View mode renders the same chips the editor uses for selected
-            // labels, but without the × remove buttons. Reading from the
-            // server snapshot (labelIds) rather than the draft so a user
-            // who half-edited and then clicked Cancel sees the canonical
-            // state — though in practice the two are equal in view mode.
-            const applied = labelIds
-              .map((id) => labels.find((l) => l.id === id))
-              .filter((x): x is Label => !!x);
-            if (applied.length === 0) {
-              return <p className="text-xs text-ink-500">No labels.</p>;
-            }
-            return (
-              <div className="flex flex-wrap gap-2">
-                {applied.map((l) => (
-                  <span
-                    key={l.id}
-                    className="chip text-white"
-                    style={{ background: l.color }}
-                  >
-                    {l.name}
-                  </span>
-                ))}
-              </div>
-            );
-          })()}
-        </section>
-      )}
+      <section className="card p-4">
+        <h2 className="mb-2 text-sm font-semibold text-ink-900">Labels</h2>
+        {isEditing ? (
+          <LabelTypeahead
+            labels={labels}
+            selectedLabels={draftLabelIds}
+            onToggle={toggleLabel}
+            onCreateLabel={createLabel}
+          />
+        ) : (() => {
+          const applied = labelIds
+            .map((id) => labels.find((l) => l.id === id))
+            .filter((x): x is Label => !!x);
+          if (applied.length === 0) {
+            return <p className="text-xs text-ink-500">No labels.</p>;
+          }
+          return (
+            <div className="flex flex-wrap gap-2">
+              {applied.map((l) => (
+                <span
+                  key={l.id}
+                  className="chip text-white"
+                  style={{ background: l.color }}
+                >
+                  {l.name}
+                </span>
+              ))}
+            </div>
+          );
+        })()}
+      </section>
 
       {/* Links */}
       <section className="card p-4">
@@ -953,25 +947,13 @@ export default function ProjectDetail() {
 
       {/* Assignees */}
       <section className="card p-4">
-        <h2 className="mb-2 text-sm font-semibold text-ink-900">Designers</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-900">Assigned to</h2>
         {isEditing ? (
-        <div className="flex flex-wrap gap-2">
-          {team.map((d) => {
-            const on = draftAssigneeIds.includes(d.id);
-            return (
-              <button
-                key={d.id}
-                onClick={() => toggleAssignee(d.id)}
-                className={`chip flex items-center gap-1 ${
-                  on ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-700"
-                }`}
-              >
-                <Avatar profile={d} size={16} />
-                {d.full_name}
-              </button>
-            );
-          })}
-        </div>
+          <AssigneeDropdown
+            team={team}
+            selectedAssignees={draftAssigneeIds}
+            onToggle={toggleAssignee}
+          />
         ) : (() => {
           // View mode renders the assigned designers as an avatar stack
           // with names. Reads from the server snapshot (assigneeIds) so
@@ -1160,173 +1142,5 @@ function HeaderSaveControls({
     <Button variant="primary" onClick={onSave} disabled={saving}>
       {saving ? <Spinner /> : "Save"}
     </Button>
-  );
-}
-
-// -----------------------------------------------------------------------------
-// Labels editor — selected labels inline as chips (click × to remove), plus
-// an "add label" affordance that expands into a combobox-style picker over
-// the full library. Typing a name that doesn't match creates a new label on
-// the fly. Labels are global (not per-project) so the library grows as the
-// team invents new tags to track initiatives.
-// -----------------------------------------------------------------------------
-function LabelsEditor({
-  labels,
-  selectedIds,
-  onToggle,
-  onCreate,
-}: {
-  labels: Label[];
-  selectedIds: string[];
-  onToggle: (id: string) => void;
-  onCreate: (name: string) => Promise<void> | void;
-}) {
-  const [picking, setPicking] = useState(false);
-  const [query, setQuery] = useState("");
-
-  const selected = useMemo(
-    () =>
-      selectedIds
-        .map((id) => labels.find((l) => l.id === id))
-        .filter((x): x is Label => !!x),
-    [selectedIds, labels],
-  );
-
-  // Everything that's not already applied. We filter by the query in a
-  // case-insensitive substring match — good enough for a team with dozens
-  // of labels, not thousands.
-  const q = query.trim().toLowerCase();
-  const suggestions = useMemo(
-    () =>
-      labels
-        .filter((l) => !selectedIds.includes(l.id))
-        .filter((l) => !q || l.name.toLowerCase().includes(q))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [labels, selectedIds, q],
-  );
-
-  // Flag the "nothing matches — hit enter to create" case. Matches ignore
-  // case because label names are canonicalised lowercase at insert time.
-  const canCreate =
-    q.length > 0 && !labels.some((l) => l.name.toLowerCase() === q);
-
-  const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (canCreate) {
-        await onCreate(q);
-        setQuery("");
-      } else if (suggestions.length === 1) {
-        // Single match + enter = quick-apply, like tag autocomplete.
-        onToggle(suggestions[0].id);
-        setQuery("");
-      }
-    } else if (e.key === "Escape") {
-      setQuery("");
-      setPicking(false);
-    }
-  };
-
-  return (
-    <section className="card p-4">
-      <h2 className="mb-2 text-sm font-semibold text-ink-900">Labels</h2>
-      <div className="flex flex-wrap items-center gap-2">
-        {selected.length === 0 && !picking && (
-          <span className="text-xs text-ink-500">
-            No labels yet. Use labels to tag initiatives or cross-cutting
-            work that doesn't fit a single category.
-          </span>
-        )}
-        {selected.map((l) => (
-          <span
-            key={l.id}
-            className="chip flex items-center gap-1 text-white"
-            style={{ background: l.color }}
-          >
-            {l.name}
-            <button
-              type="button"
-              onClick={() => onToggle(l.id)}
-              className="rounded-full hover:bg-surface/20"
-              aria-label={`Remove label ${l.name}`}
-            >
-              <X size={12} />
-            </button>
-          </span>
-        ))}
-        {!picking ? (
-          <button
-            type="button"
-            onClick={() => setPicking(true)}
-            className="chip bg-ink-100 text-ink-700 hover:bg-ink-200 inline-flex items-center gap-1"
-          >
-            <Plus size={12} />
-            Add label
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <input
-              autoFocus
-              className="input h-7 w-48 text-xs"
-              placeholder="Search or create…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onBlur={() => {
-                // Small delay so a click on a suggestion fires before the
-                // picker closes. Without this, the mousedown → blur → unmount
-                // sequence eats the click.
-                setTimeout(() => setPicking(false), 150);
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setPicking(false);
-                setQuery("");
-              }}
-              className="text-xs text-ink-500 hover:text-ink-900"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-      </div>
-      {picking && (suggestions.length > 0 || canCreate) && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {suggestions.map((l) => (
-            <button
-              key={l.id}
-              type="button"
-              onMouseDown={(e) => {
-                // mousedown fires before input blur, so the toggle lands
-                // before the picker collapses.
-                e.preventDefault();
-                onToggle(l.id);
-                setQuery("");
-              }}
-              className="chip text-white"
-              style={{ background: l.color }}
-            >
-              {l.name}
-            </button>
-          ))}
-          {canCreate && (
-            <button
-              type="button"
-              onMouseDown={async (e) => {
-                e.preventDefault();
-                await onCreate(q);
-                setQuery("");
-              }}
-              className="chip bg-brand-600 text-white inline-flex items-center gap-1"
-            >
-              <Plus size={12} />
-              Create "{q}"
-            </button>
-          )}
-        </div>
-      )}
-    </section>
   );
 }
