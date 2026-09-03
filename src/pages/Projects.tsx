@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, Plus, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -941,7 +941,6 @@ function NewProjectModal({
   const [links, setLinks] = useState<ProjectLink[]>([]);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
-  const [newLabelName, setNewLabelName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -954,17 +953,13 @@ function NewProjectModal({
     .filter((p) => (p.is_active ?? true) && p.role !== "viewer")
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 
-  // Create + auto-apply a new label. Dedupes against existing names so a
-  // user hammering "create" with the same string doesn't hit the UNIQUE
-  // constraint on labels.name.
-  const handleCreateLabel = async () => {
-    const canonical = newLabelName.trim().toLowerCase();
+  const createLabel = async (name: string) => {
+    const canonical = name.trim().toLowerCase();
     if (!canonical) return;
     const existing = labels.find((l) => l.name.toLowerCase() === canonical);
     if (existing) {
       if (!selectedLabels.includes(existing.id))
         setSelectedLabels((prev) => [...prev, existing.id]);
-      setNewLabelName("");
       return;
     }
     const { data, error } = await supabase
@@ -978,7 +973,6 @@ function NewProjectModal({
     }
     onLabelCreated(data as Label);
     setSelectedLabels((prev) => [...prev, data.id]);
-    setNewLabelName("");
   };
 
   const submit = async () => {
@@ -1059,7 +1053,6 @@ function NewProjectModal({
             className="input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Nuvance hospital migration — Sharon"
           />
         </Field>
         <Field label="Description">
@@ -1108,7 +1101,7 @@ function NewProjectModal({
               <option value="high">High</option>
             </select>
           </Field>
-          <Field label="Due date (optional)">
+          <Field label="Due date">
             <input
               className="input"
               type="date"
@@ -1117,92 +1110,33 @@ function NewProjectModal({
             />
           </Field>
         </div>
-        <Field label="Assign designers">
-          <div className="flex flex-wrap gap-1">
-            {team.map((d) => {
-              const selected = selectedAssignees.includes(d.id);
-              return (
-                <button
-                  type="button"
-                  key={d.id}
-                  onClick={() =>
-                    setSelectedAssignees((prev) =>
-                      selected
-                        ? prev.filter((x) => x !== d.id)
-                        : [...prev, d.id],
-                    )
-                  }
-                  className={`chip ${
-                    selected
-                      ? "bg-brand-600 text-white"
-                      : "bg-ink-100 text-ink-700"
-                  }`}
-                >
-                  {d.full_name}
-                </button>
-              );
-            })}
-          </div>
-        </Field>
-        <Field label="Labels">
-          {/* Toggle chips across the entire library. Colored-in when
-              applied, neutral when off. New labels can be created inline
-              without leaving the modal. */}
-          <div className="flex flex-wrap gap-1">
-            {labels.map((l) => {
-              const selected = selectedLabels.includes(l.id);
-              return (
-                <button
-                  type="button"
-                  key={l.id}
-                  onClick={() =>
-                    setSelectedLabels((prev) =>
-                      selected ? prev.filter((x) => x !== l.id) : [...prev, l.id],
-                    )
-                  }
-                  className={`chip ${
-                    selected
-                      ? "bg-brand-600 text-white"
-                      : "bg-ink-100 text-ink-700"
-                  }`}
-                >
-                  {l.name}
-                </button>
-              );
-            })}
-          </div>
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              className="input h-8 w-48 text-xs"
-              placeholder="New label…"
-              value={newLabelName}
-              onChange={(e) => setNewLabelName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void handleCreateLabel();
-                }
-              }}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Assign to">
+            <AssigneeDropdown
+              team={team}
+              selectedAssignees={selectedAssignees}
+              onToggle={(id) =>
+                setSelectedAssignees((prev) =>
+                  prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+                )
+              }
             />
-            <button
-              type="button"
-              onClick={() => void handleCreateLabel()}
-              className="btn btn-secondary"
-              disabled={!newLabelName.trim()}
-            >
-              <Plus size={14} />
-              Add label
-            </button>
-          </div>
-        </Field>
+          </Field>
+          <Field label="Labels">
+            <LabelTypeahead
+              labels={labels}
+              selectedLabels={selectedLabels}
+              onToggle={(id) =>
+                setSelectedLabels((prev) =>
+                  prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+                )
+              }
+              onCreateLabel={createLabel}
+            />
+          </Field>
+        </div>
         <Field label="Links">
           <div className="space-y-2">
-            {links.length === 0 && (
-              <p className="text-xs text-ink-500">
-                Optional — add any links you'd like to associate with the
-                project (Figma, Workfront, docs, etc.).
-              </p>
-            )}
             {links.map((link, i) => (
               <div
                 key={i}
@@ -1239,7 +1173,7 @@ function NewProjectModal({
                       return next;
                     })
                   }
-                  placeholder="Title (optional)"
+                  placeholder="Title"
                 />
                 <input
                   className="input flex-1"
@@ -1253,26 +1187,28 @@ function NewProjectModal({
                   }
                   placeholder="https://…"
                 />
-                <button
-                  type="button"
-                  onClick={() =>
-                    setLinks((prev) => prev.filter((_, idx) => idx !== i))
-                  }
-                  className="rounded-md p-2 text-ink-400 hover:bg-ink-100 hover:text-rose-600"
-                  aria-label="Remove link"
-                  title="Remove link"
-                >
-                  <Trash2 size={14} />
-                </button>
+                {i > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLinks((prev) => prev.filter((_, idx) => idx !== i));
+                    }}
+                    className="rounded-md p-2 text-ink-400 hover:bg-ink-100 hover:text-rose-600"
+                    aria-label="Remove link"
+                    title="Remove link"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
             ))}
             <button
               type="button"
-              onClick={() =>
-                // Default to "figma" — that's the overwhelming majority of
-                // what the team pastes in; type can always be changed.
-                setLinks((prev) => [...prev, { type: "figma", url: "" }])
-              }
+              onClick={(e) => {
+                e.stopPropagation();
+                setLinks((prev) => [...prev, { type: "figma", url: "" }]);
+              }}
               className="btn btn-secondary"
             >
               <Plus size={14} />
@@ -1293,6 +1229,237 @@ function NewProjectModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+// Multi-select dropdown for project assignees. Shows a button with the
+// current selection summary; opens a checklist of all eligible team members.
+function AssigneeDropdown({
+  team,
+  selectedAssignees,
+  onToggle,
+}: {
+  team: Profile[];
+  selectedAssignees: string[];
+  onToggle: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const selectedProfiles = selectedAssignees
+    .map((id) => team.find((p) => p.id === id))
+    .filter((p): p is Profile => !!p);
+
+  const buttonLabel =
+    selectedProfiles.length === 0
+      ? ""
+      : selectedProfiles.length === 1
+        ? selectedProfiles[0].full_name
+        : `${selectedProfiles.length} members selected`;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="input box-border flex h-10 w-full items-center justify-between gap-2 text-left sm:h-[34px]"
+      >
+        <span
+          className={
+            selectedProfiles.length === 0 ? "text-ink-400" : "text-ink-900"
+          }
+        >
+          {buttonLabel}
+        </span>
+        <ChevronDown
+          size={14}
+          className={`flex-shrink-0 text-ink-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-ink-200 bg-surface shadow-lg">
+          {team.map((p) => {
+            const checked = selectedAssignees.includes(p.id);
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onToggle(p.id);
+                }}
+                className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-ink-100"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  readOnly
+                  className="h-4 w-4 flex-shrink-0 rounded accent-brand-600"
+                />
+                <Avatar profile={p} size={22} />
+                <span className="text-sm text-ink-900">{p.full_name}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Typeahead input for labels. Focus to see all unselected labels; type to
+// filter; Enter to pick the first match or create a new label if no exact
+// match exists. Selected labels render as chips above the input.
+function LabelTypeahead({
+  labels,
+  selectedLabels,
+  onToggle,
+  onCreateLabel,
+}: {
+  labels: Label[];
+  selectedLabels: string[];
+  onToggle: (id: string) => void;
+  onCreateLabel: (name: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const q = query.trim().toLowerCase();
+  const options = labels.filter(
+    (l) =>
+      !selectedLabels.includes(l.id) &&
+      (q === "" || l.name.toLowerCase().includes(q)),
+  );
+  const exactMatch = labels.find((l) => l.name.toLowerCase() === q);
+  const showCreate = q.length > 0 && !exactMatch;
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const select = (label: Label) => {
+    onToggle(label.id);
+    setQuery("");
+    inputRef.current?.focus();
+  };
+
+  const create = () => {
+    if (!q) return;
+    onCreateLabel(query.trim());
+    setQuery("");
+    inputRef.current?.focus();
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (options.length > 0 && !showCreate) {
+        select(options[0]);
+      } else if (showCreate) {
+        create();
+      } else if (options.length > 0) {
+        select(options[0]);
+      }
+    }
+    if (e.key === "Escape") {
+      setOpen(false);
+      setQuery("");
+    }
+  };
+
+  const selectedChips = selectedLabels
+    .map((id) => labels.find((l) => l.id === id))
+    .filter((l): l is Label => !!l);
+
+  return (
+    <div ref={containerRef} className="relative">
+      {selectedChips.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1">
+          {selectedChips.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              onClick={() => onToggle(l.id)}
+              className="chip flex items-center gap-1 text-white"
+              style={{ background: l.color }}
+            >
+              {l.name}
+              <X size={10} />
+            </button>
+          ))}
+        </div>
+      )}
+      <input
+        ref={inputRef}
+        className="input"
+        placeholder="Search or add a label…"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={onKeyDown}
+      />
+      {open && (options.length > 0 || showCreate) && (
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-ink-200 bg-surface shadow-lg">
+          {options.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                select(l);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-ink-100"
+            >
+              <span
+                className="inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                style={{ background: l.color }}
+              />
+              {l.name}
+            </button>
+          ))}
+          {showCreate && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                create();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-brand-700 hover:bg-ink-100"
+            >
+              <Plus size={13} className="flex-shrink-0" />
+              Create "{query.trim()}"
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
