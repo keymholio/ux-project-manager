@@ -7,10 +7,14 @@ export function AssigneeDropdown({
   team,
   selectedAssignees,
   onToggle,
+  singleSelect = false,
+  placeholder = "",
 }: {
   team: Profile[];
   selectedAssignees: string[];
   onToggle: (id: string) => void;
+  singleSelect?: boolean;
+  placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -31,10 +35,15 @@ export function AssigneeDropdown({
 
   const buttonLabel =
     selectedProfiles.length === 0
-      ? ""
+      ? placeholder
       : selectedProfiles.length === 1
         ? selectedProfiles[0].full_name
         : `${selectedProfiles.length} members selected`;
+
+  const handleToggle = (id: string) => {
+    onToggle(id);
+    if (singleSelect) setOpen(false);
+  };
 
   return (
     <div ref={containerRef} className="relative">
@@ -61,12 +70,12 @@ export function AssigneeDropdown({
                 type="button"
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  onToggle(p.id);
+                  handleToggle(p.id);
                 }}
                 className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-ink-100"
               >
                 <input
-                  type="checkbox"
+                  type={singleSelect ? "radio" : "checkbox"}
                   checked={checked}
                   readOnly
                   className="h-4 w-4 flex-shrink-0 rounded accent-brand-600"

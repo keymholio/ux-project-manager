@@ -947,7 +947,7 @@ export default function ProjectDetail() {
 
       {/* Assignees */}
       <section className="card p-4">
-        <h2 className="mb-2 text-sm font-semibold text-ink-900">Assigned to</h2>
+        <h2 className="mb-2 text-sm font-semibold text-ink-900">Assignee</h2>
         {isEditing ? (
           <AssigneeDropdown
             team={team}

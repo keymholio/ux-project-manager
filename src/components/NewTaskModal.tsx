@@ -126,7 +126,6 @@ export default function NewTaskModal({
             className="input"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. [DESIGN] Nuvance Norwalk PCI"
             autoFocus
           />
         </Field>
@@ -196,13 +195,6 @@ export default function NewTaskModal({
             </Field>
           )}
           <Field label="Assignee">
-            {/* Anyone with write privilege (managers + designers) can
-                assign tasks to any teammate. The role-locked variant
-                that only let designers self-assign was a leftover from
-                the older RLS model where designers could only update
-                their own rows; now that migration 012 opened the
-                tasks: update policy to all writers, the picker should
-                offer the full team for everyone. */}
             <select
               className="input"
               value={assigneeId}

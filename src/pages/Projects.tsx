@@ -1113,7 +1113,7 @@ function NewProjectModal({
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Assign to">
+          <Field label="Assignee">
             <AssigneeDropdown
               team={team}
               selectedAssignees={selectedAssignees}
