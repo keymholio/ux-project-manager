@@ -123,13 +123,14 @@ export default function UserAdmin() {
     return () => clearTimeout(t);
   }, [savedId]);
 
-  // Sort: managers first, then designers; within each group alphabetize.
+  // Sort: admins first, then editors, then viewers; within each group alphabetize.
   // Inactive users sink to the bottom of each group so the list leads
   // with the team that's actually working today.
   const rows = useMemo(() => {
+    const roleOrder: Record<string, number> = { admin: 0, editor: 1, viewer: 2 };
     return [...profiles].sort((a, b) => {
       if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
-      if (a.role !== b.role) return a.role === "manager" ? -1 : 1;
+      if (a.role !== b.role) return (roleOrder[a.role] ?? 3) - (roleOrder[b.role] ?? 3);
       return a.full_name.localeCompare(b.full_name);
     });
   }, [profiles]);
@@ -178,20 +179,20 @@ export default function UserAdmin() {
       setErr("Avatar color must be a hex like #6366f1.");
       return;
     }
-    // Guardrail: don't let the acting manager demote themselves — if
-    // they really need to, they can ask another manager to do it.
+    // Guardrail: don't let the acting admin demote themselves — if
+    // they really need to, they can ask another admin to do it.
     if (
       me &&
       id === me.id &&
-      original.role === "manager" &&
-      draft.role !== "manager"
+      original.role === "admin" &&
+      draft.role !== "admin"
     ) {
       setErr(
-        "You can't demote yourself. Ask another manager to change your role.",
+        "You can't demote yourself. Ask another admin to change your role.",
       );
       return;
     }
-    // Same protection for self-deactivation — losing manager access mid-edit
+    // Same protection for self-deactivation — losing admin access mid-edit
     // would strand the user on a route they can no longer load.
     if (me && id === me.id && original.is_active && !draft.is_active) {
       setErr("You can't deactivate your own account.");
@@ -340,15 +341,15 @@ export default function UserAdmin() {
                           e.target.value as UserRole,
                         )
                       }
-                      disabled={isSelf && original.role === "manager"}
+                      disabled={isSelf && original.role === "admin"}
                       title={
-                        isSelf && original.role === "manager"
-                          ? "Ask another manager to change your role"
+                        isSelf && original.role === "admin"
+                          ? "Ask another admin to change your role"
                           : undefined
                       }
                     >
-                      <option value="designer">Designer</option>
-                      <option value="manager">Manager</option>
+                      <option value="editor">Editor</option>
+                      <option value="admin">Admin</option>
                       <option value="viewer">Viewer</option>
                     </select>
                   </td>
