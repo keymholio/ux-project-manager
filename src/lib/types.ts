@@ -26,9 +26,7 @@ export type ProjectStatus =
   | "discovery"
   | "in_progress"
   | "needs_review"
-  | "hand_off"
   | "in_development"
-  | "vdqa"
   | "done";
 
 export type TaskStatus =
@@ -218,13 +216,7 @@ export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
   discovery: "Discovery",
   in_progress: "In progress",
   needs_review: "Needs review",
-  hand_off: "Hand-off",
-  // Underlying enum value stays `in_development` (no migration needed)
-  // — only the display label changes. Captures projects sitting with
-  // the prod / dev / copy team after design hand-off, waiting on
-  // implementation or copy.
-  in_development: "With prod/dev/copy",
-  vdqa: "VDQA",
+  in_development: "With another team",
   done: "Done",
 };
 
@@ -234,9 +226,7 @@ export const PROJECT_STATUS_ORDER: ProjectStatus[] = [
   "discovery",
   "in_progress",
   "needs_review",
-  "hand_off",
   "in_development",
-  "vdqa",
   "done",
 ];
 

@@ -160,11 +160,8 @@ const STATUS_COLORS: Record<ProjectStatus | TaskStatus, string> = {
     "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300",
   needs_review:
     "bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-300",
-  hand_off:
-    "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-500/20 dark:text-fuchsia-300",
   in_development:
     "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-300",
-  vdqa: "bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300",
   done: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300",
   // Canceled reads as "stopped, not failed" — a desaturated rose tint
   // gives it a subtle "negative" valence vs. on_hold's neutral gray

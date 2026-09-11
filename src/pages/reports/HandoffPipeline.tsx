@@ -1,9 +1,7 @@
 import {
   AlertTriangle,
   Hammer,
-  HandHelping,
   RefreshCw,
-  ShieldCheck,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -48,7 +46,7 @@ import {
 // `PIPELINE_STAGES[number]` resolves to the three-stage union — that's
 // what makes the STAGE_ICONS record's keys check out, and what makes
 // the stageHint switch statement exhaustive.
-const PIPELINE_STAGES = ["hand_off", "in_development", "vdqa"] as const;
+const PIPELINE_STAGES = ["in_development"] as const;
 type PipelineStage = (typeof PIPELINE_STAGES)[number];
 const VDQA_TASK_TYPES: TaskType[] = ["handoff", "vdqa", "vdqa_r1", "vdqa_r2", "vdqa_int"];
 const STALE_DAYS = 7;
@@ -60,10 +58,8 @@ interface PipeData {
   events: StatusEvent[];
 }
 
-const STAGE_ICONS: Record<PipelineStage, typeof HandHelping> = {
-  hand_off: HandHelping,
+const STAGE_ICONS: Record<PipelineStage, typeof Hammer> = {
   in_development: Hammer,
-  vdqa: ShieldCheck,
 };
 
 export default function HandoffPipeline({ report }: { report: ReportDef }) {
@@ -348,11 +344,7 @@ export default function HandoffPipeline({ report }: { report: ReportDef }) {
 // actually implies.
 function stageHint(stage: PipelineStage): string {
   switch (stage) {
-    case "hand_off":
-      return "Design is done, waiting on the dev team to pick it up. Long stays here usually mean a kickoff conversation is overdue.";
     case "in_development":
-      return "Dev is building. We expect these to sit a while — only the very stale ones need a follow-up.";
-    case "vdqa":
-      return "Visual / design QA. Long stays here are usually an editor queue issue, not a dev one.";
+      return "Project is with another team. Only stale items need a follow-up.";
   }
 }
