@@ -40,7 +40,7 @@ export const REPORTS: ReportDef[] = [
     summary:
       "Monday-morning recap: what shipped last week, what's in flight, what's overdue.",
     description:
-      "A scheduled weekly recap covering tasks moved to Done in the last seven days, current in-flight work by designer, overdue items, and due-this-week deadlines. Designed to be skimmed before a Monday standup or sent out as an email.",
+      "A scheduled weekly recap covering tasks moved to Done in the last seven days, current in-flight work by editor, overdue items, and due-this-week deadlines. Designed to be skimmed before a Monday standup or sent out as an email.",
     icon: CalendarDays,
     status: "ready",
   },
@@ -68,7 +68,7 @@ export const REPORTS: ReportDef[] = [
     slug: "one-on-one",
     title: "1:1 prep",
     summary:
-      "Per-designer recap: completed work, current load, overdue items, recent activity.",
+      "Per-editor recap: completed work, current load, overdue items, recent activity.",
     description:
       "One page per teammate summarizing tasks completed since the last check-in, current open load, overdue items, upcoming due dates, and recent comment activity. Generated on demand before each 1:1.",
     icon: UserSearch,
@@ -88,9 +88,9 @@ export const REPORTS: ReportDef[] = [
     slug: "quarterly-recap",
     title: "Quarterly recap",
     summary:
-      "Throughput by designer, shipped projects by category, cycle-time trends.",
+      "Throughput by editor, shipped projects by category, cycle-time trends.",
     description:
-      "End-of-quarter rollup: tasks shipped per designer, projects delivered by category, and cycle-time deltas vs. the prior quarter. Designed for performance review prep and for telling the team's story upward.",
+      "End-of-quarter rollup: tasks shipped per editor, projects delivered by category, and cycle-time deltas vs. the prior quarter. Designed for performance review prep and for telling the team's story upward.",
     icon: BarChart3,
     status: "ready",
   },

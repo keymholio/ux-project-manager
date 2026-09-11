@@ -353,6 +353,6 @@ function stageHint(stage: PipelineStage): string {
     case "in_development":
       return "Dev is building. We expect these to sit a while — only the very stale ones need a follow-up.";
     case "vdqa":
-      return "Visual / design QA. Long stays here are usually a designer queue issue, not a dev one.";
+      return "Visual / design QA. Long stays here are usually an editor queue issue, not a dev one.";
   }
 }

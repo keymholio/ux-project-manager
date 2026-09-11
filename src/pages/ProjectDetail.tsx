@@ -965,7 +965,7 @@ export default function ProjectDetail() {
             .filter((x): x is Profile => !!x);
           if (assigned.length === 0) {
             return (
-              <p className="text-xs text-ink-500">No designers assigned.</p>
+              <p className="text-xs text-ink-500">No one assigned.</p>
             );
           }
           return (

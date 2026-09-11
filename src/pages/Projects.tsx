@@ -49,11 +49,11 @@ type StatusFilter = ProjectStatus | "active" | "all";
 // project assignees as the grouping key — a project with multiple designers
 // shows up under each of them so you can read either lens ("what does Alice
 // own?" and "how many eyes are on project X?") without switching pages.
-type GroupBy = "none" | "designer" | "category" | "status";
-const VALID_GROUP_BY = new Set<string>(["none", "designer", "category", "status"]);
+type GroupBy = "none" | "editor" | "category" | "status";
+const VALID_GROUP_BY = new Set<string>(["none", "editor", "category", "status"]);
 const GROUP_BY_LABEL: Record<GroupBy, string> = {
   none: "No grouping",
-  designer: "Designer",
+  editor: "Editor",
   category: "Category",
   status: "Status",
 };
@@ -79,7 +79,7 @@ interface StoredProjectFilters {
   status?: StatusFilter;
   category?: ProjectCategory | "all";
   // "all" | "unassigned" | "<user-id>" — matches the values in the select.
-  designer?: string;
+  editor?: string;
   // "all" | "<label-id>" — matches one specific label. Kept as a single
   // value rather than a multi-select: 99% of the time the team is
   // filtering on a single initiative (e.g. "nuvance") and a dropdown is
@@ -136,14 +136,14 @@ export default function Projects() {
   // Designer filter: "all" | "unassigned" | "<user-id>". We don't validate the
   // id against the profile list on read — if a stale id slips in, the filter
   // will simply match nothing, which is the right degenerate behaviour.
-  const designerFilter: string = params.get("designer") ?? "all";
+  const editorFilter: string = params.get("editor") ?? "all";
   const labelFilter: string = params.get("label") ?? "all";
-  // Default to grouping by designer — that's the lens the team reaches for
+  // Default to grouping by editor — that's the lens the team reaches for
   // most often ("what's on Alice's plate?"). An explicit ?group=none in the
   // URL or a stored preference still wins.
   const groupBy: GroupBy = (() => {
     const g = params.get("group");
-    return g && VALID_GROUP_BY.has(g) ? (g as GroupBy) : "designer";
+    return g && VALID_GROUP_BY.has(g) ? (g as GroupBy) : "editor";
   })();
   const setStatusFilter = (s: StatusFilter) => {
     const next = new URLSearchParams(params);
@@ -157,10 +157,10 @@ export default function Projects() {
     else next.set("category", c);
     setParams(next, { replace: true });
   };
-  const setDesignerFilter = (d: string) => {
+  const setEditorFilter = (d: string) => {
     const next = new URLSearchParams(params);
-    if (d === "all") next.delete("designer");
-    else next.set("designer", d);
+    if (d === "all") next.delete("editor");
+    else next.set("editor", d);
     setParams(next, { replace: true });
   };
   const setLabelFilter = (l: string) => {
@@ -171,8 +171,8 @@ export default function Projects() {
   };
   const setGroupBy = (g: GroupBy) => {
     const next = new URLSearchParams(params);
-    // "designer" is the default; strip the param so clean URLs stay clean.
-    if (g === "designer") next.delete("group");
+    // "editor" is the default; strip the param so clean URLs stay clean.
+    if (g === "editor") next.delete("group");
     else next.set("group", g);
     setParams(next, { replace: true });
   };
@@ -223,11 +223,11 @@ export default function Projects() {
       changed = true;
     }
     if (
-      !params.has("designer") &&
-      stored.designer &&
-      stored.designer !== "all"
+      !params.has("editor") &&
+      stored.editor &&
+      stored.editor !== "all"
     ) {
-      next.set("designer", stored.designer);
+      next.set("editor", stored.editor);
       changed = true;
     }
     if (
@@ -241,7 +241,7 @@ export default function Projects() {
     if (
       !params.has("group") &&
       stored.groupBy &&
-      stored.groupBy !== "designer" &&
+      stored.groupBy !== "editor" &&
       VALID_GROUP_BY.has(stored.groupBy)
     ) {
       next.set("group", stored.groupBy);
@@ -256,12 +256,12 @@ export default function Projects() {
     writeStoredFilters({
       status: statusFilter,
       category: categoryFilter,
-      designer: designerFilter,
+      editor: editorFilter,
       label: labelFilter,
       groupBy,
       sort,
     });
-  }, [statusFilter, categoryFilter, designerFilter, labelFilter, groupBy, sort]);
+  }, [statusFilter, categoryFilter, editorFilter, labelFilter, groupBy, sort]);
 
   const refresh = async () => {
     const [pRes, aRes, profRes, lRes, plRes] = await Promise.all([
@@ -348,12 +348,12 @@ export default function Projects() {
         return false;
       }
       if (categoryFilter !== "all" && p.category !== categoryFilter) return false;
-      if (designerFilter !== "all") {
+      if (editorFilter !== "all") {
         const team = assigneesByProject.get(p.id);
-        if (designerFilter === "unassigned") {
+        if (editorFilter === "unassigned") {
           if (team && team.size > 0) return false;
         } else {
-          if (!team || !team.has(designerFilter)) return false;
+          if (!team || !team.has(editorFilter)) return false;
         }
       }
       if (labelFilter !== "all") {
@@ -368,7 +368,7 @@ export default function Projects() {
     query,
     statusFilter,
     categoryFilter,
-    designerFilter,
+    editorFilter,
     labelFilter,
     assigneesByProject,
     labelsByProject,
@@ -469,8 +469,8 @@ export default function Projects() {
       }));
     }
 
-    // groupBy === "designer"
-    const byDesigner = new Map<string, Project[]>();
+    // groupBy === "editor"
+    const byEditor = new Map<string, Project[]>();
     const unassigned: Project[] = [];
     for (const p of sortedFiltered) {
       const team = assigneesByProject.get(p.id);
@@ -479,28 +479,28 @@ export default function Projects() {
         continue;
       }
       for (const uid of team) {
-        const list = byDesigner.get(uid) ?? [];
+        const list = byEditor.get(uid) ?? [];
         list.push(p);
-        byDesigner.set(uid, list);
+        byEditor.set(uid, list);
       }
     }
-    const designerGroups = [...profiles]
-      .filter((pr) => byDesigner.has(pr.id))
+    const editorGroups = [...profiles]
+      .filter((pr) => byEditor.has(pr.id))
       .sort((a, b) => a.full_name.localeCompare(b.full_name))
       .map<Group>((pr) => ({
-        key: `designer-${pr.id}`,
+        key: `editor-${pr.id}`,
         label: pr.full_name,
         leading: <Avatar profile={pr} size={18} />,
-        projects: byDesigner.get(pr.id)!,
+        projects: byEditor.get(pr.id)!,
       }));
     if (unassigned.length > 0) {
-      designerGroups.push({
-        key: "designer-unassigned",
+      editorGroups.push({
+        key: "editor-unassigned",
         label: "Unassigned",
         projects: unassigned,
       });
     }
-    return designerGroups;
+    return editorGroups;
   }, [sortedFiltered, groupBy, assigneesByProject, profiles]);
 
   if (loading)
@@ -614,10 +614,10 @@ export default function Projects() {
         )}
         <select
           className="input w-auto"
-          value={designerFilter}
-          onChange={(e) => setDesignerFilter(e.target.value)}
+          value={editorFilter}
+          onChange={(e) => setEditorFilter(e.target.value)}
         >
-          <option value="all">All designers</option>
+          <option value="all">All editors</option>
           <option value="unassigned">Unassigned</option>
           {[...profiles]
             // Hide deactivated teammates and viewers (read-only role —
@@ -628,7 +628,7 @@ export default function Projects() {
             .filter(
               (p) =>
                 ((p.is_active ?? true) && p.role !== "viewer") ||
-                p.id === designerFilter,
+                p.id === editorFilter,
             )
             .sort((a, b) => a.full_name.localeCompare(b.full_name))
             .map((p) => (

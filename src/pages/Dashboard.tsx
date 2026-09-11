@@ -180,7 +180,7 @@ function ManagerDashboard({
       <header>
         <h1 className="text-xl font-semibold text-ink-900">Dashboard</h1>
         <p className="text-sm text-ink-500">
-          Designer workload, deadlines, and funnel health.
+          Editor workload, deadlines, and funnel health.
         </p>
       </header>
 
@@ -188,7 +188,7 @@ function ManagerDashboard({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
           icon={<Users size={18} />}
-          label="Designers"
+          label="Editors"
           value={team.length}
         />
         <Stat
@@ -228,7 +228,7 @@ function ManagerDashboard({
       <section className="card p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-ink-900">
-            Workload by designer
+            Workload by editor
           </h2>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-600">
             <LegendSwatch className="bg-ink-300" label="Backlog" />
@@ -308,8 +308,8 @@ function ManagerDashboard({
           })}
           {team.length === 0 && (
             <p className="text-sm text-ink-500">
-              No designers yet. Add people in Supabase Auth, then set their
-              role (<code>manager</code> or <code>designer</code>) in the
+              No editors yet. Add people in Supabase Auth, then set their
+              role (<code>admin</code> or <code>editor</code>) in the
               profiles table.
             </p>
           )}

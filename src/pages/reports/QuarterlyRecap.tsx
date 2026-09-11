@@ -141,17 +141,17 @@ export default function QuarterlyRecap({ report }: { report: ReportDef }) {
       new Date(p.completed_at) < periodStart,
   );
 
-  // ---------- Per-designer throughput ----------
-  const thisByDesigner = groupBy(thisTasks, (t) => t.assignee_id ?? "unassigned");
-  const priorByDesigner = groupBy(priorTasks, (t) => t.assignee_id ?? "unassigned");
-  const designerRows = team
+  // ---------- Per-editor throughput ----------
+  const thisByEditor = groupBy(thisTasks, (t) => t.assignee_id ?? "unassigned");
+  const priorByEditor = groupBy(priorTasks, (t) => t.assignee_id ?? "unassigned");
+  const editorRows = team
     .map((d) => ({
-      designer: d,
-      count: (thisByDesigner.get(d.id) ?? []).length,
-      prior: (priorByDesigner.get(d.id) ?? []).length,
+      editor: d,
+      count: (thisByEditor.get(d.id) ?? []).length,
+      prior: (priorByEditor.get(d.id) ?? []).length,
     }))
     .sort((a, b) => b.count - a.count);
-  const maxDesignerCount = Math.max(1, ...designerRows.map((r) => r.count));
+  const maxEditorCount = Math.max(1, ...editorRows.map((r) => r.count));
 
   // ---------- Projects by category ----------
   const thisProjectsByCategory = groupBy(thisProjects, (p) => p.category);
@@ -220,29 +220,29 @@ export default function QuarterlyRecap({ report }: { report: ReportDef }) {
       </div>
 
       <Section
-        title="Throughput per designer"
+        title="Throughput per editor"
         hint={`Tasks completed in the last ${PERIOD_DAYS} days. Δ compares to the prior ${PERIOD_DAYS}-day window.`}
       >
-        {designerRows.every((r) => r.count === 0) ? (
+        {editorRows.every((r) => r.count === 0) ? (
           <EmptyState
             title="No tasks completed in this period"
             hint="If that's a surprise, it's worth a look — either work isn't being marked done, or the team had a quiet quarter."
           />
         ) : (
           <div className="space-y-3">
-            {designerRows.map((r) => (
+            {editorRows.map((r) => (
               <BarRow
-                key={r.designer.id}
+                key={r.editor.id}
                 label={
                   <span className="flex items-center gap-2">
-                    <span>{r.designer.full_name}</span>
+                    <span>{r.editor.full_name}</span>
                     <DeltaPill curr={r.count} prior={r.prior} />
                   </span>
                 }
                 count={r.count}
-                percent={(r.count / maxDesignerCount) * 100}
+                percent={(r.count / maxEditorCount) * 100}
                 color="bg-brand-500"
-                icon={<Avatar profile={r.designer} size={28} />}
+                icon={<Avatar profile={r.editor} size={28} />}
               />
             ))}
           </div>

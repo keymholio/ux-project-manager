@@ -313,7 +313,7 @@ export default function WeeklyDigest({ report }: { report: ReportDef }) {
       {/* ----- In flight ----- */}
       <Section
         title="In flight"
-        hint="Open work right now, grouped by designer. On hold counts toward backlog, the same way the Dashboard groups it."
+        hint="Open work right now, grouped by editor. On hold counts toward backlog, the same way the Dashboard groups it."
       >
         {team.every((d) => (inFlightByAssignee.get(d.id) ?? []).length === 0) ? (
           <EmptyState
