@@ -17,7 +17,6 @@ export type ProjectCategory =
   | "marketing"
   | "campaigns"
   | "design_system"
-  | "ab_testing"
   | "research_dev"
   | "seo";
 
@@ -314,7 +313,6 @@ export const CATEGORY_LABEL: Record<ProjectCategory, string> = {
   marketing: "Web experience",
   campaigns: "Campaigns",
   design_system: "Design system",
-  ab_testing: "A/B testing",
   research_dev: "Research & development",
   seo: "SEO",
 };
@@ -323,7 +321,6 @@ export const CATEGORY_COLOR: Record<ProjectCategory, string> = {
   marketing: "#6366f1",
   campaigns: "#ec4899",
   design_system: "#14b8a6",
-  ab_testing: "#f59e0b",
   research_dev: "#8b5cf6",
   seo: "#10b981",
 };
