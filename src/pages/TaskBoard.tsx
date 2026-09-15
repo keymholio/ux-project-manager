@@ -167,11 +167,13 @@ export default function TaskBoard() {
       // sits inside the Done column on the board). Both age out on the
       // same weekly cadence, anchored on completed_at — the trigger in
       // migration 014 stamps that field for canceled too.
-      if (
-        (t.status === "done" || t.status === "canceled") &&
-        t.completed_at
-      ) {
-        if (new Date(t.completed_at).getTime() < startOfWeekMs) return false;
+      if (t.status === "done" || t.status === "canceled") {
+        // Use completed_at when set; fall back to updated_at for rows
+        // pre-dating the completed_at trigger (migration 014). A null
+        // completed_at with a very recent updated_at means an optimistic
+        // drag-to-done that hasn't been confirmed yet — those stay visible.
+        const ts = t.completed_at ?? t.updated_at;
+        if (ts && new Date(ts).getTime() < startOfWeekMs) return false;
       }
       return true;
     });
