@@ -23,7 +23,6 @@ export type ProjectCategory =
 export type ProjectStatus =
   | "backlog"
   | "on_hold"
-  | "discovery"
   | "in_progress"
   | "needs_review"
   | "in_development"
@@ -213,7 +212,6 @@ export interface StatusEvent {
 export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
   backlog: "Backlog",
   on_hold: "On hold",
-  discovery: "Discovery",
   in_progress: "In progress",
   needs_review: "Needs review",
   in_development: "With another team",
@@ -223,7 +221,6 @@ export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
 export const PROJECT_STATUS_ORDER: ProjectStatus[] = [
   "backlog",
   "on_hold",
-  "discovery",
   "in_progress",
   "needs_review",
   "in_development",
