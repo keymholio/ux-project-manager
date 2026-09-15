@@ -154,7 +154,6 @@ const STATUS_COLORS: Record<ProjectStatus | TaskStatus, string> = {
   // but still desaturated so it doesn't compete with the active-stage hues.
   on_hold:
     "bg-ink-200 text-ink-600 dark:bg-ink-200 dark:text-ink-600",
-  discovery: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-300",
   on_deck: "bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-300",
   in_progress:
     "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300",
