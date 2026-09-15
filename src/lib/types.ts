@@ -18,7 +18,8 @@ export type ProjectCategory =
   | "campaigns"
   | "design_system"
   | "ab_testing"
-  | "research_dev";
+  | "research_dev"
+  | "seo";
 
 export type ProjectStatus =
   | "backlog"
@@ -315,6 +316,7 @@ export const CATEGORY_LABEL: Record<ProjectCategory, string> = {
   design_system: "Design system",
   ab_testing: "A/B testing",
   research_dev: "Research & development",
+  seo: "SEO",
 };
 
 export const CATEGORY_COLOR: Record<ProjectCategory, string> = {
@@ -323,6 +325,7 @@ export const CATEGORY_COLOR: Record<ProjectCategory, string> = {
   design_system: "#14b8a6",
   ab_testing: "#f59e0b",
   research_dev: "#8b5cf6",
+  seo: "#10b981",
 };
 
 // Labels — free-form tags that live alongside categories (migration 009).
