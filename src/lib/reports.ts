@@ -60,7 +60,7 @@ export const REPORTS: ReportDef[] = [
     summary:
       "Where the team's time goes across categories, over the last month or quarter.",
     description:
-      "Tasks and projects completed per category (Marketing, Campaigns, Design System, A/B Testing, etc.) over a selectable date range. Useful for the \"are we actually working on what we said we would?\" conversation.",
+      "Tasks and projects completed per category (Web Experience, Campaigns, Design System, A/B Testing, etc.) over a selectable date range. Useful for the \"are we actually working on what we said we would?\" conversation.",
     icon: PieChart,
     status: "ready",
   },

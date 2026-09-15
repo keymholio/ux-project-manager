@@ -310,7 +310,7 @@ export const isTaskActive = (status: TaskStatus): boolean =>
   status !== "done" && status !== "canceled";
 
 export const CATEGORY_LABEL: Record<ProjectCategory, string> = {
-  marketing: "Marketing",
+  marketing: "Web experience",
   campaigns: "Campaigns",
   design_system: "Design system",
   ab_testing: "A/B testing",
